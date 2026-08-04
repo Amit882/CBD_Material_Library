@@ -17,8 +17,8 @@ export const cloudinaryConfig = {
 };
 
 export const isCloudinaryConfigured =
-  cloudinaryConfig.cloudName !== "pcenvbp9" &&
-  cloudinaryConfig.uploadPreset !== "CBD Material Library";
+  cloudinaryConfig.cloudName !== "YOUR_CLOUD_NAME" &&
+  cloudinaryConfig.uploadPreset !== "YOUR_UPLOAD_PRESET";
 
 // Uploads a File object to Cloudinary and returns the public image URL.
 export async function uploadImageToCloudinary(file){
