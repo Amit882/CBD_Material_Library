@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CBD Material Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-theme="corporate">
+
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div id="configNotice" class="config-notice" style="display:none;">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <span>Not connected yet.</span>
+    </div>
+
+    <div class="login-brand">CBD Material Library</div>
+    <div class="login-sub" id="authTitle">Sign in to your account</div>
+
+    <form id="authForm" data-mode="signin">
+      <div class="field" id="authNameField" style="display:none; margin-top:22px;">
+        <label>Your name</label>
+        <input id="authName" placeholder="e.g. Amit Rahman">
+      </div>
+      <div class="field" style="margin-top:22px;">
+        <label>Email</label>
+        <input id="authEmail" type="email" required placeholder="you@company.com">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="authPassword" type="password" required minlength="6" placeholder="••••••••">
+      </div>
+      <div id="authError" class="auth-error"></div>
+      <button class="btn primary" type="submit" id="authSubmitBtn" style="width:100%; margin-top:6px;">Sign in</button>
+    </form>
+
+    <div class="auth-toggle" id="authToggle">Don't have an account? Create one</div>
+  </div>
+</div>
+
+<div class="wrap" id="mainApp" style="display:none;">
+
+  <header>
+    <div class="top-row">
+      <div class="brand">CBD Material Library</div>
+      <div style="display:flex; gap:8px;">
+        <button class="theme-btn" id="themeToggle" aria-label="Toggle theme"><i class="fa-solid fa-moon"></i></button>
+        <button class="theme-btn" id="logoutBtn" aria-label="Sign out"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>
+      </div>
+    </div>
+    <div class="role-badge" id="roleBadge"><i class="fa-solid fa-pen"></i><span>Editor</span></div>
+    <div class="search">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input id="searchInput" placeholder="Search by name, article no, or category">
+    </div>
+    <div class="stats" id="statsRow">
+      <div class="stat"><div class="label">Materials</div><div class="value" id="statMat">0</div></div>
+      <div class="stat"><div class="label">Articles</div><div class="value" id="statArt">0</div></div>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="manage-users-link" id="manageUsersLink" style="display:none;" onclick="openManageUsers()">
+      <i class="fa-solid fa-users-gear"></i> Manage users
+    </div>
+  </header>
+
+  <main id="list"></main>
+
+  <button class="fab" id="addBtn" aria-label="New entry"><i class="fa-solid fa-plus" style="font-size:18px;"></i><span class="fab-label">New entry</span></button>
+
+  <!-- Entry choice overlay -->
+  <div class="overlay" id="choiceOverlay">
+    <div class="sheet choice-sheet">
+      <div class="sheet-head">
+        <i class="fa-solid fa-xmark" id="closeChoice"></i>
+        <span class="sheet-eyebrow">Add new entry</span>
+      </div>
+      <div class="choice-option" id="chooseManual">
+        <div class="choice-icon"><i class="fa-solid fa-pen"></i></div>
+        <div class="choice-text">
+          <div class="choice-title">Manual entry</div>
+          <div class="choice-sub">Fill out a form to add one at a time</div>
+        </div>
+        <i class="fa-solid fa-chevron-right choice-arrow"></i>
+      </div>
+      <div class="choice-option" id="chooseUpload">
+        <div class="choice-icon accent"><i class="fa-solid fa-file-arrow-up"></i></div>
+        <div class="choice-text">
+          <div class="choice-title">CBD Excel upload</div>
+          <div class="choice-sub">Upload a file and the system fills in the data automatically</div>
+        </div>
+        <i class="fa-solid fa-chevron-right choice-arrow"></i>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail overlay -->
+  <div class="overlay" id="detailOverlay">
+    <div class="sheet" id="detailSheet"></div>
+  </div>
+
+  <!-- Manage users overlay (Master only) -->
+  <div class="overlay" id="usersOverlay">
+    <div class="sheet" id="usersSheet"></div>
+  </div>
+
+  <!-- Excel upload overlay -->
+  <div class="overlay" id="uploadOverlay">
+    <div class="sheet" id="uploadSheet"></div>
+  </div>
+
+  <!-- Form overlay -->
+  <div class="overlay" id="formOverlay">
+    <div class="sheet">
+      <div class="sheet-head">
+        <i class="fa-solid fa-xmark" id="closeForm"></i>
+        <span class="sheet-eyebrow">New entry</span>
+      </div>
+      <div class="upload-box" id="uploadBox"><i class="fa-solid fa-camera" style="font-size:22px;"></i>Add photo</div>
+      <input type="file" id="photoInput" accept="image/*" style="display:none;">
+
+      <div class="field-row">
+        <div class="field">
+          <label>Brand</label>
+          <input id="fBrand" list="brandOptions" placeholder="Select or type a new brand" autocomplete="off">
+          <datalist id="brandOptions"></datalist>
+          <div class="field-hint">Not listed? Just type the new brand name.</div>
+        </div>
+        <div class="field"><label>Article No</label><input id="fArticle" placeholder="e.g. ED-0349"></div>
+      </div>
+
+      <div class="field">
+        <label>Material name</label>
+        <input id="fName" placeholder="e.g. PP Braided Fabric" oninput="checkMatch()">
+        <div class="suggest" id="matchSuggest"></div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Type / category</label>
+          <select id="fType">
+            <option>Fabric</option><option>Binding</option><option>Trims</option><option>Lining</option><option>Reinforcement</option>
+          </select>
+        </div>
+        <div class="field"><label>Width</label><input id="fWidth" placeholder="60cm"></div>
+      </div>
+
+      <div class="field-row">
+        <div class="field"><label>Consumption (with wastage)</label><input id="fConsumption" placeholder="0.0853 Yds"></div>
+      </div>
+
+      <div class="field-row">
+        <div class="field"><label>Price (RMB)</label><input id="fRmb" type="number" placeholder="0" oninput="convertRmb()"></div>
+        <div class="field"><label>Price (USD)</label><input id="fUsd" type="number" placeholder="0"></div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn" id="cancelForm">Cancel</button>
+        <button class="btn primary" id="saveForm">Save entry</button>
+      </div>
+    </div>
+  </div>
+  <!-- Image lightbox -->
+  <div class="overlay lightbox-overlay" id="lightboxOverlay" onclick="closeLightbox()">
+    <img id="lightboxImg" src="" alt="enlarged view" class="lightbox-img">
+  </div>
+
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
