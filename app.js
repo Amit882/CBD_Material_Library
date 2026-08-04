@@ -7,7 +7,7 @@ import {
   collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, getDocs, setDoc, getDoc, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-const EXCHANGE_RATE = 0.139; // TODO: replace with a live RMB->USD rate feed
+let EXCHANGE_RATE = 0.139; // fallback default; overwritten by fetchLiveRate() on load
 
 // ---- Local mirrors of Firestore data (kept in sync via onSnapshot) ----
 let materials = [];   // [{ id, name, type, width, articles:[{brand,no,rmb,usdEntry,entryDate,consumption,imageUrl}] }]
@@ -22,6 +22,49 @@ let pendingPhotoFile = null; // file selected in the add-entry form, uploaded on
 const iconFor = t => ({Fabric:"fa-solid fa-swatchbook", Binding:"fa-solid fa-ribbon", Trims:"fa-regular fa-square", Lining:"fa-solid fa-layer-group", Reinforcement:"fa-solid fa-shield-halved"}[t] || "fa-solid fa-box");
 const currentUsd = rmb => (rmb * EXCHANGE_RATE);
 const fmt = n => n.toFixed(2);
+
+// =========================================================
+// Live RMB -> USD exchange rate (Frankfurter API, free, no key needed)
+// Cached in localStorage for 6 hours so we don't re-fetch on every page load.
+// =========================================================
+
+const RATE_CACHE_KEY = 'cbd_rmb_usd_rate';
+const RATE_CACHE_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+async function fetchLiveRate(){
+  try{
+    const cached = JSON.parse(localStorage.getItem(RATE_CACHE_KEY) || 'null');
+    if(cached && (Date.now() - cached.fetchedAt) < RATE_CACHE_MS){
+      EXCHANGE_RATE = cached.rate;
+      updateRateIndicator(cached.fetchedAt);
+      return;
+    }
+    const res = await fetch('https://api.frankfurter.app/latest?from=CNY&to=USD');
+    if(!res.ok) throw new Error('rate fetch failed');
+    const data = await res.json();
+    EXCHANGE_RATE = data.rates.USD;
+    localStorage.setItem(RATE_CACHE_KEY, JSON.stringify({ rate: EXCHANGE_RATE, fetchedAt: Date.now() }));
+    updateRateIndicator(Date.now());
+    syncAll(); // re-render prices with the fresh rate
+  } catch(err){
+    console.warn('Could not fetch a live RMB->USD rate, using the last known/default rate.', err);
+    updateRateIndicator(null);
+  }
+}
+
+function updateRateIndicator(fetchedAt){
+  const el = document.getElementById('rateIndicator');
+  if(!el) return;
+  const ageText = fetchedAt ? timeAgo(fetchedAt) : 'offline / using fallback rate';
+  el.innerHTML = `<i class="fa-solid fa-arrow-right-arrow-left"></i> 1 RMB = $${EXCHANGE_RATE.toFixed(4)} &middot; ${ageText}`;
+}
+
+function timeAgo(ts){
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if(mins < 1) return 'just now';
+  if(mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins/60)}h ago`;
+}
 
 const roleMeta = {
   master: { label:"Master", icon:"fa-crown" },
@@ -441,19 +484,18 @@ document.getElementById('saveForm').onclick = async ()=>{
 };
 
 // =========================================================
-// Excel upload flow
-// NOTE: this still only demonstrates the UX (parsing + auto-match confirmation).
-// Real .xlsx parsing (e.g. via SheetJS) and fuzzy name-matching against `materials`
-// is the next piece of work once this UI is approved.
+// Excel upload flow — real parsing via SheetJS + fuzzy name-matching
+//
+// Assumption (matches the CBD sheets Amit showed): one sheet = one Article
+// (a single Brand + Article No block at the top) with many material rows
+// listed below it. Column positions vary between files, so instead of
+// reading fixed cells we search for the header row by keyword, and search
+// the top block for "Brand" / "Article No" labels.
 // =========================================================
 
-const demoParseRows = [
-  { name:"PP Braided Fabric", article:"ZR-SS25/8820", status:"ok", match:"PP Braided Fabric" },
-  { name:"PU Binding 22mm", article:"ZR-SS25/8820", status:"ok", match:"PU Binding 22mm" },
-  { name:"P.P Braided Fbrc.", article:"AL-SP25/0044", status:"warn", match:"PP Braided Fabric" },
-  { name:"7mm Ribon Webbng", article:"AL-SP25/0044", status:"warn", match:"7MM Ribbon Webbing" },
-  { name:"6N Canvas A/S 26mm", article:"AL-SP25/0044", status:"ok", match:"6N Canvas Anti-sloughing" },
-];
+let parsedRows = [];       // working set for the currently open upload
+let parsedBrand = '';
+let parsedArticleNo = '';
 
 function renderUploadStart(){
   document.getElementById('uploadSheet').innerHTML = `
@@ -468,30 +510,199 @@ function renderUploadStart(){
     </div>
     <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none;">
   `;
-  document.getElementById('dropZone').onclick = ()=> simulateParse();
-  document.getElementById('fileInput').addEventListener('change', simulateParse);
+  document.getElementById('dropZone').onclick = ()=> document.getElementById('fileInput').click();
+  document.getElementById('fileInput').addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(file) parseExcelFile(file);
+  });
 }
 
-function simulateParse(){
+async function parseExcelFile(file){
   document.getElementById('uploadSheet').innerHTML = `
     <div class="sheet-head"><span class="sheet-eyebrow">Reading file...</span></div>
     <div style="text-align:center; padding:30px 0;">
       <i class="fa-solid fa-spinner fa-spin" style="font-size:26px; color:var(--accent);"></i>
-      <div style="font-size:12px; color:var(--text-mute); margin-top:12px;">Parsing costing-05-101.xlsx</div>
+      <div style="font-size:12px; color:var(--text-mute); margin-top:12px;">Parsing ${file.name}</div>
       <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     </div>
   `;
-  setTimeout(()=> document.getElementById('progressFill').style.width = '100%', 50);
-  setTimeout(renderParseResults, 900);
+  setTimeout(()=>{ const f = document.getElementById('progressFill'); if(f) f.style.width = '100%'; }, 50);
+
+  try{
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]; // first sheet only, for now
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+    const { brand, articleNo } = extractBrandArticle(rows);
+    const headerRowIndex = findHeaderRow(rows);
+
+    if(headerRowIndex === -1){
+      throw new Error("Couldn't find a row with recognizable column headers (Material name, Width, Consumption, Cost).");
+    }
+
+    const cols = mapColumns(rows[headerRowIndex]);
+    if(cols.nameCol === -1){
+      throw new Error("Couldn't find a 'Material name' column in this sheet.");
+    }
+
+    const dataRows = extractDataRows(rows, headerRowIndex, cols);
+    parsedRows = dataRows.map(row => matchAgainstExisting(row));
+    parsedBrand = brand;
+    parsedArticleNo = articleNo;
+
+    renderParseResults();
+  } catch(err){
+    console.error('Excel parse error:', err);
+    document.getElementById('uploadSheet').innerHTML = `
+      <div class="sheet-head">
+        <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
+        <span class="sheet-eyebrow">Couldn't read this file</span>
+      </div>
+      <div style="font-size:12px; color:var(--text-mute); margin:14px 0;">${err.message}</div>
+      <button class="btn" onclick="renderUploadStart()">Try another file</button>
+    `;
+  }
+}
+window.renderUploadStart = renderUploadStart;
+
+// ---- Sheet reading helpers ----
+
+function cellText(v){ return String(v ?? '').trim(); }
+function normLabel(v){ return cellText(v).toLowerCase().replace(/[:\s.]/g, ''); }
+
+function extractBrandArticle(rows){
+  let brand = '', articleNo = '';
+  for(let r=0; r<Math.min(rows.length, 15); r++){
+    for(let c=0; c<Math.min((rows[r]||[]).length, 6); c++){
+      const label = normLabel(rows[r][c]);
+      if(!brand && label === 'brand'){
+        brand = findNextNonEmpty(rows[r], c+1);
+      }
+      if(!articleNo && (label === 'articleno' || label === 'articlenumber' || label === 'article')){
+        articleNo = findNextNonEmpty(rows[r], c+1);
+      }
+    }
+  }
+  return { brand, articleNo };
+}
+function findNextNonEmpty(row, fromCol){
+  for(let c=fromCol; c<row.length; c++){
+    const t = cellText(row[c]);
+    if(t) return t;
+  }
+  return '';
 }
 
+function findHeaderRow(rows){
+  for(let r=0; r<rows.length; r++){
+    const cells = (rows[r]||[]).map(v => cellText(v).toLowerCase());
+    const hasMaterial = cells.some(c => c.includes('material'));
+    const hasWidth = cells.some(c => c === 'width' || c.includes('width'));
+    const hasConsumption = cells.some(c => c.includes('consumption'));
+    const hasCost = cells.some(c => c.includes('cost') || c.includes('price'));
+    const score = [hasMaterial, hasWidth, hasConsumption, hasCost].filter(Boolean).length;
+    if(score >= 2) return r;
+  }
+  return -1;
+}
+
+function mapColumns(headerRow){
+  const cells = headerRow.map(v => cellText(v).toLowerCase());
+  const find = (fn) => cells.findIndex(fn);
+  return {
+    nameCol: find(c => c.includes('material')),
+    widthCol: find(c => c === 'width' || c.includes('width')),
+    consumptionCol: (() => {
+      const total = find(c => c.includes('total') && c.includes('consumption'));
+      return total !== -1 ? total : find(c => c.includes('consumption'));
+    })(),
+    unitCol: find(c => c === 'unit'),
+    costCol: (() => {
+      const perUnit = find(c => c.includes('cost') && (c.includes('unit') || c.includes('/')));
+      return perUnit !== -1 ? perUnit : find(c => c.includes('cost') || c.includes('price'));
+    })(),
+  };
+}
+
+function extractDataRows(rows, headerRowIndex, cols){
+  const result = [];
+  let emptyStreak = 0;
+  for(let r = headerRowIndex+1; r < rows.length; r++){
+    const row = rows[r] || [];
+    const name = cellText(row[cols.nameCol]);
+    const width = cols.widthCol !== -1 ? cellText(row[cols.widthCol]) : '';
+    const consumption = cols.consumptionCol !== -1 ? cellText(row[cols.consumptionCol]) : '';
+    const unit = cols.unitCol !== -1 ? cellText(row[cols.unitCol]) : '';
+    const costRaw = cols.costCol !== -1 ? row[cols.costCol] : '';
+    const cost = parseFloat(String(costRaw).replace(/[^0-9.]/g, ''));
+
+    if(!name){ emptyStreak++; if(emptyStreak > 5) break; continue; }
+    emptyStreak = 0;
+
+    // Skip section-header rows (e.g. "Principal Material") that have a name but no other data
+    if(!width && !consumption && isNaN(cost)) continue;
+
+    result.push({
+      name,
+      width,
+      consumption: consumption ? `${consumption}${unit ? ' ' + unit : ''}` : '',
+      usd: isNaN(cost) ? 0 : cost, // most CBD sheets price this column in USD
+    });
+  }
+  return result;
+}
+
+// ---- Fuzzy matching against existing materials ----
+
+function levenshtein(a, b){
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m+1}, (_, i) => [i, ...Array(n).fill(0)]);
+  for(let j=0; j<=n; j++) dp[0][j] = j;
+  for(let i=1; i<=m; i++){
+    for(let j=1; j<=n; j++){
+      dp[i][j] = a[i-1] === b[j-1]
+        ? dp[i-1][j-1]
+        : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+function normalize(s){ return s.toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function similarity(a, b){
+  const na = normalize(a), nb = normalize(b);
+  if(!na || !nb) return 0;
+  const dist = levenshtein(na, nb);
+  return 1 - dist / Math.max(na.length, nb.length);
+}
+
+function matchAgainstExisting(row){
+  let best = null, bestScore = 0;
+  for(const m of materials){
+    const score = similarity(row.name, m.name);
+    if(score > bestScore){ bestScore = score; best = m; }
+  }
+  let status;
+  if(bestScore >= 0.85) status = 'ok-match';
+  else if(bestScore >= 0.55) status = 'warn';
+  else status = 'ok-new';
+
+  return { ...row, matchedMaterial: bestScore >= 0.55 ? best : null, status, resolution: status === 'ok-match' ? 'use-match' : status === 'ok-new' ? 'create-new' : null };
+}
+
+// ---- Results UI ----
+
 function renderParseResults(){
-  const okCount = demoParseRows.filter(r=>r.status==='ok').length;
-  const warnCount = demoParseRows.filter(r=>r.status==='warn').length;
+  const okCount = parsedRows.filter(r=>r.status!=='warn').length;
+  const warnCount = parsedRows.filter(r=>r.status==='warn').length;
   document.getElementById('uploadSheet').innerHTML = `
     <div class="sheet-head">
       <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
-      <span class="sheet-eyebrow">${demoParseRows.length} rows found</span>
+      <span class="sheet-eyebrow">${parsedRows.length} rows found</span>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Brand</label><input id="parsedBrandInput" value="${parsedBrand}" placeholder="Not detected — type it"></div>
+      <div class="field"><label>Article No</label><input id="parsedArticleInput" value="${parsedArticleNo}" placeholder="Not detected — type it"></div>
     </div>
     <div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">
       <span style="color:#3FAE5C; font-weight:600;">${okCount}</span> confirmed matches &middot;
@@ -500,39 +711,82 @@ function renderParseResults(){
     <div id="parseRows"></div>
     <div class="btn-row">
       <button class="btn" onclick="document.getElementById('uploadOverlay').classList.remove('open')">Cancel</button>
-      <button class="btn primary" onclick="document.getElementById('uploadOverlay').classList.remove('open')">Import all (demo only)</button>
+      <button class="btn primary" id="importAllBtn">Import all</button>
     </div>
   `;
-  document.getElementById('parseRows').innerHTML = demoParseRows.map((r,i)=>`
-    <div class="parse-row ${r.status==='ok' ? 'resolved' : ''}" id="prow-${i}">
-      <div class="parse-status ${r.status}"><i class="fa-solid ${r.status==='ok' ? 'fa-check' : 'fa-circle-question'}"></i></div>
+  document.getElementById('importAllBtn').onclick = importAllParsedRows;
+  renderParseRowsList();
+}
+
+function renderParseRowsList(){
+  document.getElementById('parseRows').innerHTML = parsedRows.map((r,i)=>{
+    const resolved = r.status !== 'warn';
+    const matchLabel = r.status === 'ok-match'
+      ? `auto-matched: <b>${r.matchedMaterial.name}</b>`
+      : r.status === 'warn'
+      ? `matches existing: <b>${r.matchedMaterial.name}</b> &middot; use this?`
+      : `new material`;
+    return `
+    <div class="parse-row ${resolved ? 'resolved' : ''}" id="prow-${i}">
+      <div class="parse-status ${resolved ? 'ok' : 'warn'}"><i class="fa-solid ${resolved ? 'fa-check' : 'fa-circle-question'}"></i></div>
       <div class="parse-info">
         <div class="parse-name">${r.name}</div>
-        <div class="parse-sub">${r.article} ${r.status==='ok'
-          ? `&middot; auto-matched: <b>${r.match}</b>`
-          : `&middot; matches existing: <b>${r.match}</b> &middot; use this?`}</div>
+        <div class="parse-sub" id="psub-${i}">${r.width || '—'} &middot; ${r.consumption || '—'} &middot; $${fmt(r.usd)} &middot; ${matchLabel}</div>
       </div>
       ${r.status==='warn' ? `
       <div class="parse-actions" id="pactions-${i}">
         <button class="mini-btn yes" onclick="resolveRow(${i}, true)">Yes</button>
         <button class="mini-btn" onclick="resolveRow(${i}, false)">New</button>
       </div>` : ''}
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 window.resolveRow = (i, useMatch)=>{
-  const row = document.getElementById(`prow-${i}`);
-  const actions = document.getElementById(`pactions-${i}`);
-  const statusIcon = row.querySelector('.parse-status');
-  statusIcon.classList.remove('warn'); statusIcon.classList.add('ok');
-  statusIcon.innerHTML = '<i class="fa-solid fa-check"></i>';
-  row.querySelector('.parse-sub').innerHTML = useMatch
-    ? `${demoParseRows[i].article} &middot; confirmed: <b>${demoParseRows[i].match}</b>`
-    : `${demoParseRows[i].article} &middot; saved as new material`;
-  if(actions) actions.remove();
-  row.classList.add('resolved');
+  const row = parsedRows[i];
+  row.resolution = useMatch ? 'use-match' : 'create-new';
+  row.status = useMatch ? 'ok-match' : 'ok-new';
+  renderParseRowsList();
 };
+
+async function importAllParsedRows(){
+  const stillWarn = parsedRows.some(r => r.status === 'warn');
+  if(stillWarn){
+    alert('Please resolve every yellow row (Yes / New) before importing.');
+    return;
+  }
+  const brand = document.getElementById('parsedBrandInput').value.trim();
+  const articleNo = document.getElementById('parsedArticleInput').value.trim();
+  if(!brand || !articleNo){
+    alert('Brand and Article No are required — they weren\'t found in the sheet, please type them in.');
+    return;
+  }
+
+  const btn = document.getElementById('importAllBtn');
+  btn.textContent = 'Importing...'; btn.disabled = true;
+
+  try{
+    const entryDate = new Date().toISOString().slice(0,7);
+    for(const row of parsedRows){
+      const newArticle = { brand, no: articleNo, rmb: 0, usdEntry: row.usd, entryDate, consumption: row.consumption || '—', imageUrl: '' };
+      if(row.resolution === 'use-match' && row.matchedMaterial){
+        await updateDoc(doc(db, 'materials', row.matchedMaterial.id), {
+          articles: [...row.matchedMaterial.articles, newArticle],
+        });
+      } else {
+        await addDoc(collection(db, 'materials'), {
+          name: row.name, type: 'Uncategorized', width: row.width, articles: [newArticle], createdAt: serverTimestamp(),
+        });
+      }
+    }
+    document.getElementById('uploadOverlay').classList.remove('open');
+  } catch(err){
+    console.error('Import failed:', err);
+    alert('Something went wrong while importing. Please try again.');
+  } finally {
+    btn.textContent = 'Import all'; btn.disabled = false;
+  }
+}
 
 // =========================================================
 // Search + theme toggle (unchanged from the prototype)
@@ -548,3 +802,4 @@ themeBtn.onclick = ()=>{
 };
 
 showConfigNoticeIfNeeded();
+fetchLiveRate();
