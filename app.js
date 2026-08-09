@@ -517,12 +517,14 @@ function renderUploadStart(){
   });
 }
 
+let currentWorkbook = null; // kept while the upload overlay is open, so the sheet picker can re-parse on selection
+
 async function parseExcelFile(file){
   document.getElementById('uploadSheet').innerHTML = `
     <div class="sheet-head"><span class="sheet-eyebrow">Reading file...</span></div>
     <div style="text-align:center; padding:30px 0;">
       <i class="fa-solid fa-spinner fa-spin" style="font-size:26px; color:var(--accent);"></i>
-      <div style="font-size:12px; color:var(--text-mute); margin-top:12px;">Parsing ${file.name}</div>
+      <div style="font-size:12px; color:var(--text-mute); margin-top:12px;">Opening ${file.name}</div>
       <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     </div>
   `;
@@ -530,23 +532,62 @@ async function parseExcelFile(file){
 
   try{
     const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: 'array' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]]; // first sheet only, for now
+    currentWorkbook = XLSX.read(buffer, { type: 'array' });
+
+    if(currentWorkbook.SheetNames.length === 1){
+      parseSheet(currentWorkbook.SheetNames[0]);
+    } else {
+      renderSheetPicker();
+    }
+  } catch(err){
+    console.error('Excel read error:', err);
+    showParseError(`Couldn't open this file: ${err.message}`);
+  }
+}
+window.renderUploadStart = renderUploadStart;
+
+function renderSheetPicker(){
+  document.getElementById('uploadSheet').innerHTML = `
+    <div class="sheet-head">
+      <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
+      <span class="sheet-eyebrow">Which tab is this Article on?</span>
+    </div>
+    <div style="font-size:11px; color:var(--text-mute); margin-bottom:12px;">
+      This file has ${currentWorkbook.SheetNames.length} tabs. Each tab is usually one Article — pick the one you want to import.
+    </div>
+    <div id="sheetPickerList"></div>
+  `;
+  document.getElementById('sheetPickerList').innerHTML = currentWorkbook.SheetNames.map(name => `
+    <div class="choice-option" onclick="parseSheet('${name.replace(/'/g, "\\'")}')">
+      <div class="choice-icon"><i class="fa-solid fa-table"></i></div>
+      <div class="choice-text"><div class="choice-title">${name}</div></div>
+      <i class="fa-solid fa-chevron-right choice-arrow"></i>
+    </div>
+  `).join('');
+}
+window.parseSheet = parseSheet;
+
+function parseSheet(sheetName){
+  try{
+    const sheet = currentWorkbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
     const { brand, articleNo } = extractBrandArticle(rows);
     const headerRowIndex = findHeaderRow(rows);
-
     if(headerRowIndex === -1){
-      throw new Error("Couldn't find a row with recognizable column headers (Material name, Width, Consumption, Cost).");
+      throw new Error(`Couldn't find a row with recognizable column headers (Material name, Width, Consumption, Cost) on the "${sheetName}" tab.`);
     }
 
     const cols = mapColumns(rows[headerRowIndex]);
     if(cols.nameCol === -1){
-      throw new Error("Couldn't find a 'Material name' column in this sheet.");
+      throw new Error(`Couldn't find a 'Material name' column on the "${sheetName}" tab.`);
     }
 
     const dataRows = extractDataRows(rows, headerRowIndex, cols);
+    if(dataRows.length === 0){
+      throw new Error(`Found headers on the "${sheetName}" tab but no material rows underneath. Is this the right tab?`);
+    }
+
     parsedRows = dataRows.map(row => matchAgainstExisting(row));
     parsedBrand = brand;
     parsedArticleNo = articleNo;
@@ -554,17 +595,23 @@ async function parseExcelFile(file){
     renderParseResults();
   } catch(err){
     console.error('Excel parse error:', err);
-    document.getElementById('uploadSheet').innerHTML = `
-      <div class="sheet-head">
-        <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
-        <span class="sheet-eyebrow">Couldn't read this file</span>
-      </div>
-      <div style="font-size:12px; color:var(--text-mute); margin:14px 0;">${err.message}</div>
-      <button class="btn" onclick="renderUploadStart()">Try another file</button>
-    `;
+    showParseError(err.message);
   }
 }
-window.renderUploadStart = renderUploadStart;
+
+function showParseError(message){
+  const backBtn = currentWorkbook && currentWorkbook.SheetNames.length > 1
+    ? `<button class="btn" onclick="renderSheetPicker()">Choose a different tab</button>`
+    : `<button class="btn" onclick="renderUploadStart()">Try another file</button>`;
+  document.getElementById('uploadSheet').innerHTML = `
+    <div class="sheet-head">
+      <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
+      <span class="sheet-eyebrow">Couldn't read this</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-mute); margin:14px 0;">${message}</div>
+    ${backBtn}
+  `;
+}
 
 // ---- Sheet reading helpers ----
 
