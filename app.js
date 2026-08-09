@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, getDocs, setDoc, getDoc, serverTimestamp,
+  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, getDocs, setDoc, getDoc, serverTimestamp, writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 let EXCHANGE_RATE = 0.139; // fallback default; overwritten by fetchLiveRate() on load
@@ -380,6 +380,35 @@ window.openEditMaterial = (id)=>{
 };
 
 // ---- Attach a photo to one specific Article link that has no image yet (e.g. from Excel import) ----
+// Find a photo that's already been attached to this Article (brand + article no)
+// anywhere in the database, so we never have to ask for the same shoe photo twice.
+function getKnownArticleImage(brand, no){
+  for(const m of materials){
+    const hit = m.articles.find(a => a.brand === brand && a.no === no && a.imageUrl);
+    if(hit) return hit.imageUrl;
+  }
+  return '';
+}
+
+// One Article (brand + article no) is usually linked from many different materials
+// (a single shoe can use 40+ materials). This pushes one photo to EVERY material
+// that references this same Article, so it only has to be uploaded once.
+async function propagateArticlePhoto(brand, no, imageUrl){
+  const batch = writeBatch(db);
+  let touched = 0;
+  for(const m of materials){
+    const needsUpdate = m.articles.some(a => a.brand === brand && a.no === no && a.imageUrl !== imageUrl);
+    if(!needsUpdate) continue;
+    const updatedArticles = m.articles.map(a =>
+      (a.brand === brand && a.no === no) ? { ...a, imageUrl } : a
+    );
+    batch.update(doc(db, 'materials', m.id), { articles: updatedArticles });
+    touched++;
+  }
+  if(touched > 0) await batch.commit();
+  return touched;
+}
+
 window.addArticlePhoto = (materialId, brand, no, entryDate)=>{
   if(!isCloudinaryConfigured){
     alert('Photo storage isn\'t connected yet — open cloudinary-config.js and paste in your cloud name and upload preset.');
@@ -393,12 +422,17 @@ window.addArticlePhoto = (materialId, brand, no, entryDate)=>{
     if(!file) return;
     try{
       const imageUrl = await uploadImageToCloudinary(file);
-      const material = materials.find(x=>x.id===materialId);
-      if(!material) return;
-      const updatedArticles = material.articles.map(a =>
-        (a.brand===brand && a.no===no && a.entryDate===entryDate) ? { ...a, imageUrl } : a
-      );
-      await updateDoc(doc(db, 'materials', materialId), { articles: updatedArticles });
+      const touched = await propagateArticlePhoto(brand, no, imageUrl);
+      if(touched === 0){
+        // fallback: this exact article link wasn't matched by brand+no for some reason — update it directly
+        const material = materials.find(x=>x.id===materialId);
+        if(material){
+          const updatedArticles = material.articles.map(a =>
+            (a.brand===brand && a.no===no && a.entryDate===entryDate) ? { ...a, imageUrl } : a
+          );
+          await updateDoc(doc(db, 'materials', materialId), { articles: updatedArticles });
+        }
+      }
       openDetail(materialId);
     } catch(err){
       console.error('Photo upload failed:', err);
@@ -520,7 +554,7 @@ document.getElementById('saveForm').onclick = async ()=>{
     const usd = !isNaN(usdTyped) ? usdTyped : currentUsd(rmb);
     const entryDate = new Date().toISOString().slice(0,7);
 
-    let imageUrl = '';
+    let imageUrl = getKnownArticleImage(brand, article); // reuse this Article's photo if we've already got one
     if(pendingPhotoFile){
       if(!isCloudinaryConfigured){
         alert('Photo storage isn\'t connected yet — open cloudinary-config.js and paste in your cloud name and upload preset. Saving the entry without a photo for now.');
@@ -537,6 +571,9 @@ document.getElementById('saveForm').onclick = async ()=>{
     } else {
       await addDoc(collection(db, 'materials'), { name, type, width, articles: [newArticle], createdAt: serverTimestamp() });
     }
+    // If a fresh photo was uploaded just now, make sure every other material for this
+    // same Article picks it up too, instead of only the one we just saved.
+    if(pendingPhotoFile && imageUrl) await propagateArticlePhoto(brand, article, imageUrl);
 
     resetForm();
     closeForm();
@@ -891,7 +928,7 @@ async function importAllParsedRows(){
       // The Excel sheet only gives a USD cost, not RMB — back-calculate an approximate RMB
       // so the "current price" (which is always derived from rmb * today's rate) isn't $0.
       const approxRmb = EXCHANGE_RATE > 0 ? row.usd / EXCHANGE_RATE : 0;
-      const newArticle = { brand, no: articleNo, rmb: approxRmb, usdEntry: row.usd, entryDate, consumption: row.consumption || '—', imageUrl: '' };
+      const newArticle = { brand, no: articleNo, rmb: approxRmb, usdEntry: row.usd, entryDate, consumption: row.consumption || '—', imageUrl: getKnownArticleImage(brand, articleNo) };
       if(row.resolution === 'use-match' && row.matchedMaterial){
         await updateDoc(doc(db, 'materials', row.matchedMaterial.id), {
           articles: [...row.matchedMaterial.articles, newArticle],
