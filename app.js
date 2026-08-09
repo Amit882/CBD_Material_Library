@@ -21,42 +21,60 @@ let pendingPhotoFile = null; // file selected in the add-entry form, uploaded on
 
 const iconFor = t => ({Fabric:"fa-solid fa-swatchbook", Binding:"fa-solid fa-ribbon", Trims:"fa-regular fa-square", Lining:"fa-solid fa-layer-group", Reinforcement:"fa-solid fa-shield-halved"}[t] || "fa-solid fa-box");
 const currentUsd = rmb => (rmb * EXCHANGE_RATE);
-const fmt = n => n.toFixed(2);
+const fmt = n => n.toFixed(3);
 
 // =========================================================
 // Live RMB -> USD exchange rate (Frankfurter API, free, no key needed)
-// Cached in localStorage for 6 hours so we don't re-fetch on every page load.
+// Cached in localStorage for 30 minutes so it stays fresh without re-fetching on every render.
 // =========================================================
 
 const RATE_CACHE_KEY = 'cbd_rmb_usd_rate';
-const RATE_CACHE_MS = 6 * 60 * 60 * 1000; // 6 hours
+const RATE_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
-async function fetchLiveRate(){
-  try{
+async function fetchRateFromPrimaryApi(){
+  const res = await fetch('https://api.frankfurter.app/latest?from=CNY&to=USD');
+  if(!res.ok) throw new Error('primary rate API failed');
+  const data = await res.json();
+  return data.rates.USD;
+}
+async function fetchRateFromFallbackApi(){
+  const res = await fetch('https://open.er-api.com/v6/latest/CNY');
+  if(!res.ok) throw new Error('fallback rate API failed');
+  const data = await res.json();
+  return data.rates.USD;
+}
+
+async function fetchLiveRate(force = false){
+  if(!force){
     const cached = JSON.parse(localStorage.getItem(RATE_CACHE_KEY) || 'null');
     if(cached && (Date.now() - cached.fetchedAt) < RATE_CACHE_MS){
       EXCHANGE_RATE = cached.rate;
       updateRateIndicator(cached.fetchedAt);
       return;
     }
-    const res = await fetch('https://api.frankfurter.app/latest?from=CNY&to=USD');
-    if(!res.ok) throw new Error('rate fetch failed');
-    const data = await res.json();
-    EXCHANGE_RATE = data.rates.USD;
+  }
+  updateRateIndicator(null, true); // show a "refreshing..." state while we fetch
+  try{
+    let rate;
+    try{ rate = await fetchRateFromPrimaryApi(); }
+    catch{ rate = await fetchRateFromFallbackApi(); } // try a second free source before giving up
+    EXCHANGE_RATE = rate;
     localStorage.setItem(RATE_CACHE_KEY, JSON.stringify({ rate: EXCHANGE_RATE, fetchedAt: Date.now() }));
     updateRateIndicator(Date.now());
     syncAll(); // re-render prices with the fresh rate
   } catch(err){
-    console.warn('Could not fetch a live RMB->USD rate, using the last known/default rate.', err);
+    console.warn('Could not fetch a live RMB->USD rate from either source, using the last known/default rate.', err);
     updateRateIndicator(null);
   }
 }
+window.fetchLiveRate = fetchLiveRate;
 
-function updateRateIndicator(fetchedAt){
+function updateRateIndicator(fetchedAt, loading = false){
   const el = document.getElementById('rateIndicator');
   if(!el) return;
-  const ageText = fetchedAt ? timeAgo(fetchedAt) : 'offline / using fallback rate';
-  el.innerHTML = `<i class="fa-solid fa-arrow-right-arrow-left"></i> 1 RMB = $${EXCHANGE_RATE.toFixed(4)} &middot; ${ageText}`;
+  const statusText = loading ? 'refreshing...' : fetchedAt ? timeAgo(fetchedAt) : "couldn't refresh — using fallback rate";
+  el.innerHTML = `<i class="fa-solid fa-arrow-right-arrow-left"></i> 1 RMB = $${EXCHANGE_RATE.toFixed(4)} &middot; ${statusText}
+    <i class="fa-solid fa-rotate" style="cursor:pointer; margin-left:4px;" title="Refresh rate now" onclick="fetchLiveRate(true)"></i>`;
 }
 
 function timeAgo(ts){
@@ -345,10 +363,15 @@ window.closeDetail = ()=> document.getElementById('detailOverlay').classList.rem
 document.getElementById('detailOverlay').addEventListener('click', e=>{ if(e.target.id==='detailOverlay') closeDetail(); });
 
 // ---- Edit an existing material (name / category / width) ----
+function allKnownCategories(){
+  const base = ['Fabric','Binding','Trims','Lining','Reinforcement','Uncategorized'];
+  const fromData = materials.map(m => m.type).filter(Boolean);
+  return [...new Set([...base, ...fromData])].sort();
+}
+
 window.openEditMaterial = (id)=>{
   const m = materials.find(x=>x.id===id);
   if(!m) return;
-  const categories = ['Fabric','Binding','Trims','Lining','Reinforcement','Uncategorized'];
   document.getElementById('detailSheet').innerHTML = `
     <div class="sheet-head">
       <i class="fa-solid fa-arrow-left" onclick="openDetail('${id}')"></i>
@@ -358,9 +381,10 @@ window.openEditMaterial = (id)=>{
     <div class="field-row">
       <div class="field">
         <label>Type / category</label>
-        <select id="emType">
-          ${categories.map(c => `<option value="${c}" ${c===m.type?'selected':''}>${c}</option>`).join('')}
-        </select>
+        <input id="emType" list="categoryOptions" value="${(m.type||'').replace(/"/g,'&quot;')}" placeholder="Select or type a new category">
+        <datalist id="categoryOptions">
+          ${allKnownCategories().map(c => `<option value="${c}"></option>`).join('')}
+        </datalist>
       </div>
       <div class="field"><label>Width</label><input id="emWidth" value="${(m.width||'').replace(/"/g,'&quot;')}"></div>
     </div>
@@ -371,7 +395,7 @@ window.openEditMaterial = (id)=>{
   `;
   document.getElementById('saveEditMaterial').onclick = async ()=>{
     const name = document.getElementById('emName').value.trim();
-    const type = document.getElementById('emType').value;
+    const type = document.getElementById('emType').value.trim() || 'Uncategorized';
     const width = document.getElementById('emWidth').value.trim();
     if(!name) return;
     await updateDoc(doc(db, 'materials', id), { name, type, width });
@@ -455,11 +479,18 @@ function renderBrandOptions(){
     [...brands].sort().map(b => `<option value="${b}"></option>`).join('');
 }
 
+function renderCategoryOptions(){
+  const el = document.getElementById('fTypeOptions');
+  if(!el) return;
+  el.innerHTML = allKnownCategories().map(c => `<option value="${c}"></option>`).join('');
+}
+
 function syncAll(){
   renderChips();
   renderStats();
   renderList();
   renderBrandOptions();
+  renderCategoryOptions();
 }
 
 // =========================================================
@@ -529,7 +560,7 @@ window.convertRmb = ()=>{
 };
 
 function resetForm(){
-  ['fBrand','fArticle','fName','fWidth','fConsumption','fRmb','fUsd'].forEach(id => document.getElementById(id).value = '');
+  ['fBrand','fArticle','fName','fType','fWidth','fConsumption','fRmb','fUsd'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('matchSuggest').classList.remove('show');
   document.getElementById('uploadBox').innerHTML = `<i class="fa-solid fa-camera" style="font-size:22px;"></i>Add photo`;
   pendingPhotoFile = null;
@@ -546,7 +577,7 @@ document.getElementById('saveForm').onclick = async ()=>{
   saveBtn.disabled = true;
 
   try{
-    const type = document.getElementById('fType').value;
+    const type = document.getElementById('fType').value.trim() || 'Uncategorized';
     const width = document.getElementById('fWidth').value.trim();
     const consumption = document.getElementById('fConsumption').value.trim();
     const rmb = parseFloat(document.getElementById('fRmb').value) || 0;
