@@ -312,8 +312,9 @@ function openDetail(id){
     <div class="used-in">Used in ${articles.length} articles</div>
     ${articles.map(a=>`
       <div class="article-row">
-        <div class="article-thumb" ${a.imageUrl ? `onclick="openLightbox('${a.imageUrl}')"` : ''}>
-          ${a.imageUrl ? `<img src="${a.imageUrl}" alt="${a.brand}" loading="lazy">` : `<i class="fa-solid fa-image"></i>`}
+        <div class="article-thumb"
+          ${a.imageUrl ? `onclick="openLightbox('${a.imageUrl}')"` : (currentRole !== 'viewer' ? `onclick="addArticlePhoto('${m.id}','${a.brand.replace(/'/g,"\\'")}','${a.no.replace(/'/g,"\\'")}','${a.entryDate}')"` : '')}>
+          ${a.imageUrl ? `<img src="${a.imageUrl}" alt="${a.brand}" loading="lazy">` : (currentRole !== 'viewer' ? `<i class="fa-solid fa-camera"></i>` : `<i class="fa-solid fa-image"></i>`)}
         </div>
         <div class="article-info">
           <div class="top-line">
@@ -334,6 +335,7 @@ function openDetail(id){
     `).join('')}
     ${currentRole !== 'viewer' ? `
     <div class="btn-row">
+      <button class="btn" onclick="openEditMaterial('${m.id}')">edit material</button>
       <button class="btn" onclick="deleteMaterial('${m.id}')">delete material</button>
     </div>` : ''}
   `;
@@ -341,6 +343,70 @@ function openDetail(id){
 }
 window.closeDetail = ()=> document.getElementById('detailOverlay').classList.remove('open');
 document.getElementById('detailOverlay').addEventListener('click', e=>{ if(e.target.id==='detailOverlay') closeDetail(); });
+
+// ---- Edit an existing material (name / category / width) ----
+window.openEditMaterial = (id)=>{
+  const m = materials.find(x=>x.id===id);
+  if(!m) return;
+  const categories = ['Fabric','Binding','Trims','Lining','Reinforcement','Uncategorized'];
+  document.getElementById('detailSheet').innerHTML = `
+    <div class="sheet-head">
+      <i class="fa-solid fa-arrow-left" onclick="openDetail('${id}')"></i>
+      <span class="sheet-eyebrow">Edit material</span>
+    </div>
+    <div class="field"><label>Material name</label><input id="emName" value="${m.name.replace(/"/g,'&quot;')}"></div>
+    <div class="field-row">
+      <div class="field">
+        <label>Type / category</label>
+        <select id="emType">
+          ${categories.map(c => `<option value="${c}" ${c===m.type?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Width</label><input id="emWidth" value="${(m.width||'').replace(/"/g,'&quot;')}"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" onclick="openDetail('${id}')">Cancel</button>
+      <button class="btn primary" id="saveEditMaterial">Save changes</button>
+    </div>
+  `;
+  document.getElementById('saveEditMaterial').onclick = async ()=>{
+    const name = document.getElementById('emName').value.trim();
+    const type = document.getElementById('emType').value;
+    const width = document.getElementById('emWidth').value.trim();
+    if(!name) return;
+    await updateDoc(doc(db, 'materials', id), { name, type, width });
+    openDetail(id);
+  };
+};
+
+// ---- Attach a photo to one specific Article link that has no image yet (e.g. from Excel import) ----
+window.addArticlePhoto = (materialId, brand, no, entryDate)=>{
+  if(!isCloudinaryConfigured){
+    alert('Photo storage isn\'t connected yet — open cloudinary-config.js and paste in your cloud name and upload preset.');
+    return;
+  }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async ()=>{
+    const file = input.files[0];
+    if(!file) return;
+    try{
+      const imageUrl = await uploadImageToCloudinary(file);
+      const material = materials.find(x=>x.id===materialId);
+      if(!material) return;
+      const updatedArticles = material.articles.map(a =>
+        (a.brand===brand && a.no===no && a.entryDate===entryDate) ? { ...a, imageUrl } : a
+      );
+      await updateDoc(doc(db, 'materials', materialId), { articles: updatedArticles });
+      openDetail(materialId);
+    } catch(err){
+      console.error('Photo upload failed:', err);
+      alert('Could not upload this photo. Please try again.');
+    }
+  };
+  input.click();
+};
 
 window.deleteMaterial = async (id)=>{
   if(!confirm('Delete this material and all its article links? This cannot be undone.')) return;
@@ -817,7 +883,10 @@ async function importAllParsedRows(){
   try{
     const entryDate = new Date().toISOString().slice(0,7);
     for(const row of parsedRows){
-      const newArticle = { brand, no: articleNo, rmb: 0, usdEntry: row.usd, entryDate, consumption: row.consumption || '—', imageUrl: '' };
+      // The Excel sheet only gives a USD cost, not RMB — back-calculate an approximate RMB
+      // so the "current price" (which is always derived from rmb * today's rate) isn't $0.
+      const approxRmb = EXCHANGE_RATE > 0 ? row.usd / EXCHANGE_RATE : 0;
+      const newArticle = { brand, no: articleNo, rmb: approxRmb, usdEntry: row.usd, entryDate, consumption: row.consumption || '—', imageUrl: '' };
       if(row.resolution === 'use-match' && row.matchedMaterial){
         await updateDoc(doc(db, 'materials', row.matchedMaterial.id), {
           articles: [...row.matchedMaterial.articles, newArticle],
