@@ -573,8 +573,8 @@ function normLabel(v){ return cellText(v).toLowerCase().replace(/[:\s.]/g, ''); 
 
 function extractBrandArticle(rows){
   let brand = '', articleNo = '';
-  for(let r=0; r<Math.min(rows.length, 15); r++){
-    for(let c=0; c<Math.min((rows[r]||[]).length, 6); c++){
+  for(let r=0; r<Math.min(rows.length, 20); r++){
+    for(let c=0; c<Math.min((rows[r]||[]).length, 30); c++){
       const label = normLabel(rows[r][c]);
       if(!brand && label === 'brand'){
         brand = findNextNonEmpty(rows[r], c+1);
@@ -632,7 +632,9 @@ function extractDataRows(rows, headerRowIndex, cols){
     const row = rows[r] || [];
     const name = cellText(row[cols.nameCol]);
     const width = cols.widthCol !== -1 ? cellText(row[cols.widthCol]) : '';
-    const consumption = cols.consumptionCol !== -1 ? cellText(row[cols.consumptionCol]) : '';
+    const consumptionRaw = cols.consumptionCol !== -1 ? row[cols.consumptionCol] : '';
+    const consumptionNum = parseFloat(consumptionRaw);
+    const consumption = cellText(consumptionRaw) === '' ? '' : (isNaN(consumptionNum) ? cellText(consumptionRaw) : consumptionNum.toFixed(4));
     const unit = cols.unitCol !== -1 ? cellText(row[cols.unitCol]) : '';
     const costRaw = cols.costCol !== -1 ? row[cols.costCol] : '';
     const cost = parseFloat(String(costRaw).replace(/[^0-9.]/g, ''));
