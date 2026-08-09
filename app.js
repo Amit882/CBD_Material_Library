@@ -725,6 +725,7 @@ function mapColumns(headerRow){
   const find = (fn) => cells.findIndex(fn);
   return {
     nameCol: find(c => c.includes('material')),
+    componentCol: find(c => c.includes('component') && c.includes('name')),
     widthCol: find(c => c === 'width' || c.includes('width')),
     consumptionCol: (() => {
       const total = find(c => c.includes('total') && c.includes('consumption'));
@@ -740,10 +741,14 @@ function mapColumns(headerRow){
 
 function extractDataRows(rows, headerRowIndex, cols){
   const result = [];
-  let emptyStreak = 0;
   for(let r = headerRowIndex+1; r < rows.length; r++){
     const row = rows[r] || [];
-    const name = cellText(row[cols.nameCol]);
+    // Prefer "Materials name with Color"; many rows (packing, labels, tests) only
+    // have a "Component Name" instead, e.g. "Polybag", "Price Tag/RFID Tag".
+    const materialName = cellText(row[cols.nameCol]);
+    const componentName = cols.componentCol !== -1 ? cellText(row[cols.componentCol]) : '';
+    const name = materialName || componentName;
+
     const width = cols.widthCol !== -1 ? cellText(row[cols.widthCol]) : '';
     const consumptionRaw = cols.consumptionCol !== -1 ? row[cols.consumptionCol] : '';
     const consumptionNum = parseFloat(consumptionRaw);
@@ -752,11 +757,10 @@ function extractDataRows(rows, headerRowIndex, cols){
     const costRaw = cols.costCol !== -1 ? row[cols.costCol] : '';
     const cost = parseFloat(String(costRaw).replace(/[^0-9.]/g, ''));
 
-    if(!name){ emptyStreak++; if(emptyStreak > 5) break; continue; }
-    emptyStreak = 0;
-
-    // Skip section-header rows (e.g. "Principal Material") that have a name but no other data
-    if(!width && !consumption && isNaN(cost)) continue;
+    if(!name) continue; // blank row or a pure section divider — skip, but keep scanning the rest of the sheet
+    // Real material lines always carry a positive per-unit cost; section/category header rows
+    // (e.g. "Lining Material", "TESTS", "Packing") report $0 here, so this reliably filters them out.
+    if(isNaN(cost) || cost <= 0) continue;
 
     result.push({
       name,
