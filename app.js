@@ -106,17 +106,27 @@ function showConfigNoticeIfNeeded(){
   }
 }
 
+let authSubmitting = false;
+let signupInProgress = false;
+
 document.getElementById('authForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
+  if(authSubmitting) return; // guard against double-click / double-submit firing two requests
+  authSubmitting = true;
+
   const email = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value;
   const name = document.getElementById('authName').value.trim();
   const isSignUp = document.getElementById('authForm').dataset.mode === 'signup';
   const errorBox = document.getElementById('authError');
+  const submitBtn = document.getElementById('authSubmitBtn');
   errorBox.textContent = '';
+  submitBtn.disabled = true;
+  submitBtn.textContent = isSignUp ? 'Creating account...' : 'Signing in...';
 
   try{
     if(isSignUp){
+      signupInProgress = true;
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       await bootstrapUserDoc(cred.user.uid, name || email, email);
     } else {
@@ -124,6 +134,11 @@ document.getElementById('authForm').addEventListener('submit', async (e)=>{
     }
   } catch(err){
     errorBox.textContent = friendlyAuthError(err.code);
+  } finally {
+    signupInProgress = false;
+    authSubmitting = false;
+    submitBtn.disabled = false;
+    submitBtn.textContent = isSignUp ? 'Create account' : 'Sign in';
   }
 });
 
@@ -163,11 +178,15 @@ onAuthStateChanged(auth, async (user)=>{
   if(user){
     currentUser = user;
     const userDocRef = doc(db, 'users', user.uid);
-    const userDoc = await getDoc(userDocRef);
-    if(!userDoc.exists()){
-      // Account exists in Auth but has no role doc yet (e.g. created outside the app) - bootstrap it.
-      await bootstrapUserDoc(user.uid, user.email, user.email);
+    if(!signupInProgress){
+      const userDoc = await getDoc(userDocRef);
+      if(!userDoc.exists()){
+        // Account exists in Auth but has no role doc yet (e.g. created outside the app) - bootstrap it.
+        await bootstrapUserDoc(user.uid, user.email, user.email);
+      }
     }
+    // If a signup IS in progress, the submit handler above is already writing this
+    // doc — onSnapshot below will simply pick it up as soon as that write lands.
     onSnapshot(userDocRef, (snap)=>{
       currentRole = snap.data()?.role || 'viewer';
       applyRolePermissions();
@@ -242,6 +261,7 @@ function renderUsersList(){
           <option value="editor" ${u.role==='editor'?'selected':''}>Editor</option>
           <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
         </select>
+        ${u.id!==currentUser.uid ? `<i class="fa-solid fa-trash user-remove-btn" title="Remove access" onclick="removeUserAccess('${u.id}','${(u.name||u.email).replace(/'/g,"\\'")}')"></i>` : ''}
       </div>
     `).join('')}
   `;
@@ -251,21 +271,41 @@ window.changeUserRole = async (uid, newRole)=>{
   await updateDoc(doc(db, 'users', uid), { role: newRole });
 };
 
+// Note: this revokes the person's access to the app (deletes their role record, so
+// they drop back to being treated as a brand-new signup next time they log in).
+// It does NOT delete their actual Firebase login — fully deleting a login account
+// requires Admin SDK / a Cloud Function, which isn't possible from the browser alone.
+window.removeUserAccess = async (uid, displayName)=>{
+  if(!confirm(`Remove ${displayName}'s access? They'll lose Editor/Viewer permissions immediately. (Their login itself isn't deleted — they'd start over as a new Viewer if they sign in again.)`)) return;
+  await deleteDoc(doc(db, 'users', uid));
+};
+
 // =========================================================
 // Rendering (list, chips, stats, detail, lightbox)
 // =========================================================
 
 function renderChips(){
-  const cats = ["All", ...new Set(materials.map(m=>m.type))];
+  const cats = ["All", ...new Set(materials.map(m=>m.type))].sort((a,b)=> a==='All' ? -1 : b==='All' ? 1 : a.localeCompare(b));
   document.getElementById('chips').innerHTML = cats.map(c =>
     `<span class="chip ${c===activeCategory?'active':''}" onclick="setCategory('${c}')">${c}</span>`
   ).join('');
 }
-window.setCategory = (c)=>{ activeCategory = c; renderChips(); renderList(); };
+window.setCategory = (c)=>{ activeCategory = c; renderChips(); renderList(); renderStats(); };
+
+function getFilteredMaterials(){
+  const q = query.trim().toLowerCase();
+  return materials.filter(m=>{
+    if(activeCategory!=='All' && m.type!==activeCategory) return false;
+    if(!q) return true;
+    return m.name.toLowerCase().includes(q) || m.type.toLowerCase().includes(q) ||
+      m.articles.some(a=>a.no.toLowerCase().includes(q) || a.brand.toLowerCase().includes(q));
+  });
+}
 
 function renderStats(){
-  const totalArticles = new Set(materials.flatMap(m=>m.articles.map(a=>a.no))).size;
-  document.getElementById('statMat').textContent = materials.length;
+  const filtered = getFilteredMaterials();
+  const totalArticles = new Set(filtered.flatMap(m=>m.articles.map(a=>a.no))).size;
+  document.getElementById('statMat').textContent = filtered.length;
   document.getElementById('statArt').textContent = totalArticles;
 }
 
@@ -274,13 +314,7 @@ function sortedArticles(m){
 }
 
 function renderList(){
-  const q = query.trim().toLowerCase();
-  const filtered = materials.filter(m=>{
-    if(activeCategory!=='All' && m.type!==activeCategory) return false;
-    if(!q) return true;
-    return m.name.toLowerCase().includes(q) || m.type.toLowerCase().includes(q) ||
-      m.articles.some(a=>a.no.toLowerCase().includes(q) || a.brand.toLowerCase().includes(q));
-  });
+  const filtered = getFilteredMaterials();
   const list = document.getElementById('list');
   if(filtered.length===0){
     list.innerHTML = `<div class="empty">No results found</div>`;
@@ -983,7 +1017,7 @@ async function importAllParsedRows(){
 // Search + theme toggle (unchanged from the prototype)
 // =========================================================
 
-document.getElementById('searchInput').addEventListener('input', e=>{ query = e.target.value; renderList(); });
+document.getElementById('searchInput').addEventListener('input', e=>{ query = e.target.value; renderList(); renderStats(); });
 
 const themeBtn = document.getElementById('themeToggle');
 themeBtn.onclick = ()=>{
