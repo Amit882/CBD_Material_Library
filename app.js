@@ -367,11 +367,17 @@ function openDetail(id){
       <div class="summary-cell accent"><div class="label">Price range</div><div class="value">$${fmt(minP)}&ndash;${fmt(maxP)}</div></div>
     </div>
     <div class="used-in">Used in ${articles.length} articles</div>
-    ${articles.map(a=>`
+    ${articles.map(a=>{
+      const brandEsc = a.brand.replace(/'/g,"\\'");
+      const noEsc = a.no.replace(/'/g,"\\'");
+      const canEdit = currentRole !== 'viewer';
+      return `
       <div class="article-row">
-        <div class="article-thumb"
-          ${a.imageUrl ? `onclick="openLightbox('${a.imageUrl}')"` : (currentRole !== 'viewer' ? `onclick="addArticlePhoto('${m.id}','${a.brand.replace(/'/g,"\\'")}','${a.no.replace(/'/g,"\\'")}','${a.entryDate}')"` : '')}>
-          ${a.imageUrl ? `<img src="${a.imageUrl}" alt="${a.brand}" loading="lazy">` : (currentRole !== 'viewer' ? `<i class="fa-solid fa-camera"></i>` : `<i class="fa-solid fa-image"></i>`)}
+        <div class="article-thumb-wrap">
+          <div class="article-thumb" ${a.imageUrl ? `onclick="openLightbox('${a.imageUrl}')"` : (canEdit ? `onclick="addArticlePhoto('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"` : '')}>
+            ${a.imageUrl ? `<img src="${a.imageUrl}" alt="${a.brand}" loading="lazy">` : `<i class="fa-solid ${canEdit ? 'fa-camera' : 'fa-image'}"></i>`}
+          </div>
+          ${canEdit ? `<i class="fa-solid fa-pen thumb-edit-badge" title="Change photo" onclick="addArticlePhoto('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>` : ''}
         </div>
         <div class="article-info">
           <div class="top-line">
@@ -388,8 +394,13 @@ function openDetail(id){
           <div class="rmb">&yen;${fmt(a.rmb)}</div>
           <div class="price-hist">entry: $${fmt(a.usdEntry)}<br>(${a.entryDate})</div>
         </div>
+        ${canEdit ? `
+        <div class="article-link-actions">
+          <i class="fa-solid fa-link-slash" title="Remove this article link from this material" onclick="deleteArticleLink('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>
+          ${currentRole === 'master' ? `<i class="fa-solid fa-trash-can" title="Delete this Article from EVERY material (Master only)" onclick="deleteArticleEverywhere('${brandEsc}','${noEsc}')"></i>` : ''}
+        </div>` : ''}
       </div>
-    `).join('')}
+    `;}).join('')}
     ${currentRole !== 'viewer' ? `
     <div class="btn-row">
       <button class="btn" onclick="openEditMaterial('${m.id}')">edit material</button>
@@ -400,6 +411,47 @@ function openDetail(id){
 }
 window.closeDetail = ()=> document.getElementById('detailOverlay').classList.remove('open');
 document.getElementById('detailOverlay').addEventListener('click', e=>{ if(e.target.id==='detailOverlay') closeDetail(); });
+
+// ---- Remove one Article link from one material (Editor/Master) ----
+window.deleteArticleLink = async (materialId, brand, no, entryDate)=>{
+  if(!confirm(`Remove ${brand} ${no} from this material? This only affects this one material.`)) return;
+  const material = materials.find(m=>m.id===materialId);
+  if(!material) return;
+  const remaining = material.articles.filter(a => !(a.brand===brand && a.no===no && a.entryDate===entryDate));
+  try{
+    if(remaining.length === 0){
+      await deleteDoc(doc(db, 'materials', materialId)); // no article links left - the material record itself is now orphaned
+      closeDetail();
+    } else {
+      await updateDoc(doc(db, 'materials', materialId), { articles: remaining });
+      openDetail(materialId);
+    }
+  } catch(err){
+    console.error('Could not remove article link:', err);
+    alert(`Couldn't remove this: ${err.message}`);
+  }
+};
+
+// ---- Remove this Article (brand+no) from EVERY material it's linked to (Master only) ----
+window.deleteArticleEverywhere = async (brand, no)=>{
+  if(currentRole !== 'master') return;
+  const affected = materials.filter(m => m.articles.some(a=>a.brand===brand && a.no===no)).length;
+  if(!confirm(`Delete "${brand} ${no}" from ALL ${affected} material(s) it's linked to across the whole database? This can't be undone.`)) return;
+  try{
+    const batch = writeBatch(db);
+    for(const m of materials){
+      if(!m.articles.some(a=>a.brand===brand && a.no===no)) continue;
+      const remaining = m.articles.filter(a=>!(a.brand===brand && a.no===no));
+      if(remaining.length === 0) batch.delete(doc(db, 'materials', m.id));
+      else batch.update(doc(db, 'materials', m.id), { articles: remaining });
+    }
+    await batch.commit();
+    closeDetail();
+  } catch(err){
+    console.error('Could not delete this article everywhere:', err);
+    alert(`Couldn't complete this: ${err.message}`);
+  }
+};
 
 // ---- Edit an existing material (name / category / width) ----
 function allKnownCategories(){
@@ -637,6 +689,11 @@ document.getElementById('saveForm').onclick = async ()=>{
 
     const material = materials.find(m => m.name.toLowerCase() === name.toLowerCase());
     if(material){
+      const isDuplicate = material.articles.some(a => a.brand === brand && a.no === article);
+      if(isDuplicate){
+        const proceed = confirm(`"${brand} ${article}" is already linked to "${material.name}". Add it again anyway? (This will create a duplicate entry.)`);
+        if(!proceed){ saveBtn.textContent = 'Save entry'; saveBtn.disabled = false; return; }
+      }
       await updateDoc(doc(db, 'materials', material.id), { articles: [...material.articles, newArticle] });
     } else {
       await addDoc(collection(db, 'materials'), { name, type, width, articles: [newArticle], createdAt: serverTimestamp() });
@@ -990,11 +1047,29 @@ async function importAllParsedRows(){
   }
 
   const btn = document.getElementById('importAllBtn');
+
+  // Check whether this Brand+Article has already been linked to any of the matched
+  // materials before (e.g. the same sheet got uploaded twice by mistake).
+  const duplicateRows = parsedRows.filter(row =>
+    row.resolution === 'use-match' && row.matchedMaterial &&
+    row.matchedMaterial.articles.some(a => a.brand === brand && a.no === articleNo)
+  );
+  let skipDuplicates = false;
+  if(duplicateRows.length > 0){
+    const proceed = confirm(
+      `"${brand} ${articleNo}" already appears to be linked to ${duplicateRows.length} of these materials — this file (or article) may have been imported before.\n\n` +
+      `Press OK to skip those ${duplicateRows.length} duplicate rows and import only the new ones, or Cancel to stop and review first.`
+    );
+    if(!proceed) return;
+    skipDuplicates = true;
+  }
+
   btn.textContent = 'Importing...'; btn.disabled = true;
 
   try{
     const entryDate = new Date().toISOString().slice(0,7);
     for(const row of parsedRows){
+      if(skipDuplicates && duplicateRows.includes(row)) continue;
       // The Excel sheet only gives a USD cost, not RMB — back-calculate an approximate RMB
       // so the "current price" (which is always derived from rmb * today's rate) isn't $0.
       const approxRmb = EXCHANGE_RATE > 0 ? row.usd / EXCHANGE_RATE : 0;
