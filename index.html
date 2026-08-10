@@ -45,26 +45,32 @@
 <div class="wrap" id="mainApp" style="display:none;">
 
   <header>
-    <div class="top-row">
-      <div class="brand">CBD Material Library</div>
-      <div style="display:flex; gap:8px;">
-        <button class="theme-btn" id="themeToggle" aria-label="Toggle theme"><i class="fa-solid fa-moon"></i></button>
-        <button class="theme-btn" id="logoutBtn" aria-label="Sign out"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>
+    <div class="sidebar-top">
+      <div class="top-row">
+        <div class="brand">CBD Material Library</div>
+        <div style="display:flex; gap:8px;">
+          <button class="theme-btn" id="themeToggle" aria-label="Toggle theme"><i class="fa-solid fa-moon"></i></button>
+          <button class="theme-btn" id="logoutBtn" aria-label="Sign out"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>
+        </div>
+      </div>
+      <div class="role-badge" id="roleBadge"><i class="fa-solid fa-pen"></i><span>Editor</span></div>
+      <div class="search">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input id="searchInput" placeholder="Search by name, article no, or category">
+      </div>
+      <div class="stats" id="statsRow">
+        <div class="stat"><div class="label">Materials</div><div class="value" id="statMat">0</div></div>
+        <div class="stat"><div class="label">Articles</div><div class="value" id="statArt">0</div></div>
       </div>
     </div>
-    <div class="role-badge" id="roleBadge"><i class="fa-solid fa-pen"></i><span>Editor</span></div>
-    <div class="search">
-      <i class="fa-solid fa-magnifying-glass"></i>
-      <input id="searchInput" placeholder="Search by name, article no, or category">
+    <div class="chips-scroll">
+      <div class="chips" id="chips"></div>
     </div>
-    <div class="stats" id="statsRow">
-      <div class="stat"><div class="label">Materials</div><div class="value" id="statMat">0</div></div>
-      <div class="stat"><div class="label">Articles</div><div class="value" id="statArt">0</div></div>
-    </div>
-    <div class="chips" id="chips"></div>
-    <div class="rate-indicator" id="rateIndicator"><i class="fa-solid fa-arrow-right-arrow-left"></i> 1 RMB = $0.139</div>
-    <div class="manage-users-link" id="manageUsersLink" style="display:none;" onclick="openManageUsers()">
-      <i class="fa-solid fa-users-gear"></i> Manage users
+    <div class="sidebar-bottom">
+      <div class="rate-indicator" id="rateIndicator"><i class="fa-solid fa-arrow-right-arrow-left"></i> 1 RMB = $0.139</div>
+      <div class="manage-users-link" id="manageUsersLink" style="display:none;" onclick="openManageUsers()">
+        <i class="fa-solid fa-users-gear"></i> Manage users
+      </div>
     </div>
   </header>
 
