@@ -277,7 +277,12 @@ window.changeUserRole = async (uid, newRole)=>{
 // requires Admin SDK / a Cloud Function, which isn't possible from the browser alone.
 window.removeUserAccess = async (uid, displayName)=>{
   if(!confirm(`Remove ${displayName}'s access? They'll lose Editor/Viewer permissions immediately. (Their login itself isn't deleted — they'd start over as a new Viewer if they sign in again.)`)) return;
-  await deleteDoc(doc(db, 'users', uid));
+  try{
+    await deleteDoc(doc(db, 'users', uid));
+  } catch(err){
+    console.error('Could not remove user access:', err);
+    alert(`Couldn't remove this person: ${err.message}\n\nIf this says "permission denied", make sure your Firestore Rules include a "delete" rule for the users collection (see the README).`);
+  }
 };
 
 // =========================================================
