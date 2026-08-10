@@ -233,6 +233,10 @@
     font-size:11px; border:1px solid var(--border); border-radius:6px; padding:5px 8px;
     background:var(--surface); color:var(--text-soft); font-family:inherit;
   }
+  .user-remove-btn{
+    font-size:13px; color:var(--text-mute); cursor:pointer; padding:6px; flex-shrink:0;
+  }
+  .user-remove-btn:hover{color:#C0392B;}
 
   .choice-sheet{max-width:420px;}
   .choice-option{
@@ -314,11 +318,12 @@
     .wrap{max-width:none; width:100%; margin:0;}
 
     header{
-      width:272px; position:fixed; top:0; left:0; height:100vh; overflow-y:auto; z-index:15;
+      width:272px; position:fixed; top:0; left:0; height:100vh; overflow:hidden; z-index:15;
       display:flex; flex-direction:column; border-right:1px solid var(--border); border-bottom:none;
-      padding:28px 22px; border-radius:0;
+      padding:28px 22px 0; border-radius:0;
     }
     [data-theme="dark"] header{ border-right-color:#2A271C; }
+    .sidebar-top{flex-shrink:0;}
     .top-row{flex-direction:column; align-items:flex-start; gap:14px;}
     .theme-btn{align-self:flex-start;}
     .search{margin-top:22px; max-width:none;}
@@ -326,8 +331,14 @@
     .stat{display:flex; align-items:center; justify-content:space-between; padding:10px 14px;}
     .stat .label{margin:0;}
     .stat .value{margin:0;}
-    .chips{flex-direction:column; overflow-x:visible; margin-top:22px; gap:4px;}
+    .chips-scroll{flex:1; min-height:0; overflow-y:auto; margin-top:18px; padding-right:4px;}
+    .chips{flex-direction:column; overflow-x:visible; margin-top:0; gap:4px;}
     .chip{width:100%; text-align:left; border-radius:8px; padding:9px 12px;}
+    .sidebar-bottom{
+      flex-shrink:0; padding:14px 0 96px; border-top:1px solid var(--border); margin-top:8px;
+    }
+    [data-theme="dark"] .sidebar-bottom{border-top-color:#2A271C;}
+    .rate-indicator{margin-top:0;}
 
     main{
       margin-left:272px; max-width:900px; padding:36px 48px;
