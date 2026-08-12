@@ -59,8 +59,9 @@
         <input id="searchInput" placeholder="Search by name, article no, or category">
       </div>
       <div class="stats" id="statsRow">
-        <div class="stat"><div class="label">Materials</div><div class="value" id="statMat">0</div></div>
-        <div class="stat"><div class="label">Articles</div><div class="value" id="statArt">0</div></div>
+        <div class="stat clickable-stat" onclick="clearFiltersAndShowList()"><div class="label">Materials</div><div class="value" id="statMat">0</div></div>
+        <div class="stat clickable-stat" onclick="openAllArticles()"><div class="label">Articles</div><div class="value" id="statArt">0</div></div>
+        <div class="stat clickable-stat" onclick="openAllBrands()"><div class="label">Brands</div><div class="value" id="statBrand">0</div></div>
       </div>
     </div>
     <div class="chips-scroll">
@@ -139,6 +140,10 @@
         <div class="field"><label>Article No</label><input id="fArticle" placeholder="e.g. ED-0349"></div>
       </div>
 
+      <div class="field-row">
+        <div class="field"><label>Order Qty</label><input id="fQty" placeholder="e.g. 5,400 Prs"></div>
+      </div>
+
       <div class="field">
         <label>Material name</label>
         <input id="fName" placeholder="e.g. PP Braided Fabric" oninput="checkMatch()">
@@ -160,7 +165,7 @@
 
       <div class="field-row">
         <div class="field"><label>Price (RMB)</label><input id="fRmb" type="number" placeholder="0" oninput="convertRmb()"></div>
-        <div class="field"><label>Price (USD)</label><input id="fUsd" type="number" placeholder="0"></div>
+        <div class="field"><label>Price (USD)</label><input id="fUsd" type="number" placeholder="0" oninput="convertUsd()"></div>
       </div>
 
       <div class="btn-row">
