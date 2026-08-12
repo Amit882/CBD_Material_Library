@@ -12,6 +12,7 @@ let EXCHANGE_RATE = 0.139; // fallback default; overwritten by fetchLiveRate() o
 // ---- Local mirrors of Firestore data (kept in sync via onSnapshot) ----
 let materials = [];   // [{ id, name, type, width, articles:[{brand,no,rmb,usdEntry,entryDate,consumption,imageUrl}] }]
 let users = [];       // [{ id (uid), name, email, role }]
+let brands = [];      // [{ id, name, logoUrl }] - only holds brands that have a logo set
 let currentUser = null;
 let currentRole = null; // 'master' | 'editor' | 'viewer'
 
@@ -229,6 +230,10 @@ function attachDataListeners(){
     users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if(document.getElementById('usersOverlay').classList.contains('open')) renderUsersList();
   }, (err)=> console.error('users listener error:', err));
+
+  onSnapshot(collection(db, 'brands'), (snap)=>{
+    brands = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }, (err)=> console.error('brands listener error:', err));
 }
 
 // =========================================================
@@ -310,16 +315,35 @@ function getFilteredMaterials(){
 function renderStats(){
   const filtered = getFilteredMaterials();
   const totalArticles = new Set(filtered.flatMap(m=>m.articles.map(a=>a.no))).size;
+  const totalBrands = new Set(filtered.flatMap(m=>m.articles.map(a=>a.brand))).size;
   document.getElementById('statMat').textContent = filtered.length;
   document.getElementById('statArt').textContent = totalArticles;
+  document.getElementById('statBrand').textContent = totalBrands;
 }
 
 function sortedArticles(m){
   return [...m.articles].sort((a,b)=> (b.entryDate||'').localeCompare(a.entryDate||''));
 }
 
+// Rough production-stage ordering: upper/lining-type components first (the bulk of
+// named materials), then Thread, then Lasting, then Packing, and Chemical always last —
+// since chemicals are used across nearly every article, their usage-count isn't meaningful.
+function categoryTier(type){
+  const t = (type||'').toLowerCase();
+  if(t.includes('chemical')) return 5;
+  if(t.includes('thread')) return 4;
+  if(t.includes('lasting')) return 3;
+  if(t.includes('pack')) return 2;
+  return 1; // upper, lining, and every other named component
+}
+
 function renderList(){
   const filtered = getFilteredMaterials();
+  filtered.sort((a,b)=>{
+    const tierDiff = categoryTier(a.type) - categoryTier(b.type);
+    if(tierDiff !== 0) return tierDiff;
+    return b.articles.length - a.articles.length; // within the same tier, most-used material first
+  });
   const list = document.getElementById('list');
   if(filtered.length===0){
     list.innerHTML = `<div class="empty">No results found</div>`;
@@ -381,12 +405,13 @@ function openDetail(id){
         </div>
         <div class="article-info">
           <div class="top-line">
-            <span class="brand">${a.brand}</span>
-            <span class="no">${a.no}</span>
+            <span class="brand clickable" onclick="event.stopPropagation(); openBrandView('${brandEsc}')">${a.brand}</span>
+            <span class="no clickable" onclick="event.stopPropagation(); openArticleView('${brandEsc}','${noEsc}')">${a.no}</span>
           </div>
           <div class="spec-line">
             <span class="width"><i class="fa-solid fa-ruler" style="font-size:14px;"></i> ${m.width || '—'}</span>
             <span class="consumption"><i class="fa-solid fa-layer-group" style="font-size:14px;"></i> ${a.consumption || '—'}</span>
+            ${a.qty ? `<span class="qty"><i class="fa-solid fa-cubes" style="font-size:14px;"></i> ${a.qty}</span>` : ''}
           </div>
         </div>
         <div class="article-price">
@@ -396,6 +421,7 @@ function openDetail(id){
         </div>
         ${canEdit ? `
         <div class="article-link-actions">
+          <i class="fa-solid fa-pen" title="Edit this article link" onclick="openEditArticleLink('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>
           <i class="fa-solid fa-link-slash" title="Remove this article link from this material" onclick="deleteArticleLink('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>
           ${currentRole === 'master' ? `<i class="fa-solid fa-trash-can" title="Delete this Article from EVERY material (Master only)" onclick="deleteArticleEverywhere('${brandEsc}','${noEsc}')"></i>` : ''}
         </div>` : ''}
@@ -411,6 +437,204 @@ function openDetail(id){
 }
 window.closeDetail = ()=> document.getElementById('detailOverlay').classList.remove('open');
 document.getElementById('detailOverlay').addEventListener('click', e=>{ if(e.target.id==='detailOverlay') closeDetail(); });
+
+// ---- Brand view: every Article under this Brand, with how many materials each uses ----
+function getBrandLogo(brand){
+  const b = brands.find(x => x.name === brand);
+  return b ? b.logoUrl : '';
+}
+
+// ---- Top-level directory views, reached by clicking the Materials/Articles/Brands stat cards ----
+
+window.clearFiltersAndShowList = ()=>{
+  query = '';
+  activeCategory = 'All';
+  document.getElementById('searchInput').value = '';
+  renderChips();
+  renderList();
+  renderStats();
+};
+
+window.openAllArticles = ()=>{
+  const map = new Map(); // "brand||no" -> { brand, no, qty, materialCount, imageUrl }
+  materials.forEach(m => m.articles.forEach(a => {
+    const key = `${a.brand}||${a.no}`;
+    const entry = map.get(key) || { brand: a.brand, no: a.no, qty: a.qty || '', materialCount: 0, imageUrl: '' };
+    entry.materialCount++;
+    if(!entry.qty && a.qty) entry.qty = a.qty;
+    if(!entry.imageUrl && a.imageUrl) entry.imageUrl = a.imageUrl;
+    map.set(key, entry);
+  }));
+  const rows = [...map.values()].sort((a,b)=> b.materialCount - a.materialCount);
+
+  document.getElementById('detailSheet').innerHTML = `
+    <div class="sheet-head">
+      <i class="fa-solid fa-xmark" onclick="closeDetail()"></i>
+      <span class="sheet-eyebrow">All articles</span>
+    </div>
+    <div class="used-in">${rows.length} article${rows.length===1?'':'s'}</div>
+    ${rows.map(r => `
+      <div class="drill-row" onclick="openArticleView('${r.brand.replace(/'/g,"\\'")}','${r.no.replace(/'/g,"\\'")}')">
+        <div class="drill-thumb">${r.imageUrl ? `<img src="${r.imageUrl}" alt="${r.no}">` : `<i class="fa-solid fa-image"></i>`}</div>
+        <div class="drill-info">
+          <div class="drill-title">${r.brand} &middot; ${r.no}</div>
+          <div class="drill-sub">${r.qty ? `Qty: ${r.qty} &middot; ` : ''}${r.materialCount} material${r.materialCount===1?'':'s'}</div>
+        </div>
+        <i class="fa-solid fa-chevron-right drill-arrow"></i>
+      </div>
+    `).join('')}
+  `;
+  document.getElementById('detailOverlay').classList.add('open');
+};
+
+window.openAllBrands = ()=>{
+  const map = new Map(); // brand -> { articleCount, materialCount, logoUrl }
+  materials.forEach(m => m.articles.forEach(a => {
+    const entry = map.get(a.brand) || { articles: new Set(), materialCount: 0 };
+    entry.articles.add(a.no);
+    entry.materialCount++;
+    map.set(a.brand, entry);
+  }));
+  const rows = [...map.entries()].sort((a,b)=> b[1].materialCount - a[1].materialCount);
+
+  document.getElementById('detailSheet').innerHTML = `
+    <div class="sheet-head">
+      <i class="fa-solid fa-xmark" onclick="closeDetail()"></i>
+      <span class="sheet-eyebrow">All brands</span>
+    </div>
+    <div class="used-in">${rows.length} brand${rows.length===1?'':'s'}</div>
+    ${rows.map(([brand, info]) => {
+      const logoUrl = getBrandLogo(brand);
+      return `
+      <div class="drill-row" onclick="openBrandView('${brand.replace(/'/g,"\\'")}')">
+        <div class="drill-thumb">${logoUrl ? `<img src="${logoUrl}" alt="${brand}">` : `<i class="fa-solid fa-building"></i>`}</div>
+        <div class="drill-info">
+          <div class="drill-title">${brand}</div>
+          <div class="drill-sub">${info.articles.size} article${info.articles.size===1?'':'s'} &middot; ${info.materialCount} material link${info.materialCount===1?'':'s'}</div>
+        </div>
+        <i class="fa-solid fa-chevron-right drill-arrow"></i>
+      </div>
+    `;}).join('')}
+  `;
+  document.getElementById('detailOverlay').classList.add('open');
+};
+
+// ---- Brand detail: its logo (uploadable) + every Article under this Brand ----
+window.openBrandView = (brand)=>{
+  const articleMap = new Map(); // articleNo -> { qty, materialCount, imageUrl }
+  materials.forEach(m => m.articles.forEach(a => {
+    if(a.brand !== brand) return;
+    const entry = articleMap.get(a.no) || { qty: a.qty || '', materialCount: 0, imageUrl: '' };
+    entry.materialCount++;
+    if(!entry.qty && a.qty) entry.qty = a.qty;
+    if(!entry.imageUrl && a.imageUrl) entry.imageUrl = a.imageUrl;
+    articleMap.set(a.no, entry);
+  }));
+  const rows = [...articleMap.entries()].sort((a,b)=> b[1].materialCount - a[1].materialCount);
+  const brandEsc = brand.replace(/'/g,"\\'");
+  const logoUrl = getBrandLogo(brand);
+  const canEdit = currentRole !== 'viewer';
+
+  document.getElementById('detailSheet').innerHTML = `
+    <div class="sheet-head">
+      <i class="fa-solid fa-arrow-left" onclick="openAllBrands()"></i>
+      <span class="sheet-eyebrow">brand</span>
+    </div>
+    <div class="detail-hero">
+      <div class="detail-thumb-wrap">
+        <div class="detail-thumb" ${logoUrl ? `onclick="openLightbox('${logoUrl}')"` : ''} style="cursor:${logoUrl ? 'pointer' : 'default'};">
+          ${logoUrl ? `<img src="${logoUrl}" alt="${brand}" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">` : `<i class="fa-solid fa-building"></i>`}
+        </div>
+        ${canEdit ? `<i class="fa-solid fa-pen thumb-edit-badge" title="${logoUrl ? 'Change' : 'Add'} brand logo" onclick="uploadBrandLogo('${brandEsc}')"></i>` : ''}
+      </div>
+      <div>
+        <div class="detail-title">${brand}</div>
+        <span class="badge">${rows.length} article${rows.length===1?'':'s'}</span>
+      </div>
+    </div>
+    ${rows.map(([no, info]) => `
+      <div class="drill-row" onclick="openArticleView('${brandEsc}','${no.replace(/'/g,"\\'")}')">
+        <div class="drill-thumb">${info.imageUrl ? `<img src="${info.imageUrl}" alt="${no}">` : `<i class="fa-solid fa-image"></i>`}</div>
+        <div class="drill-info">
+          <div class="drill-title">${no}</div>
+          <div class="drill-sub">${info.qty ? `Qty: ${info.qty} &middot; ` : ''}${info.materialCount} material${info.materialCount===1?'':'s'}</div>
+        </div>
+        <i class="fa-solid fa-chevron-right drill-arrow"></i>
+      </div>
+    `).join('')}
+  `;
+  document.getElementById('detailOverlay').classList.add('open');
+};
+
+window.uploadBrandLogo = (brand)=>{
+  if(!isCloudinaryConfigured){
+    alert('Photo storage isn\'t connected yet — open cloudinary-config.js and paste in your cloud name and upload preset.');
+    return;
+  }
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async ()=>{
+    const file = input.files[0];
+    if(!file) return;
+    try{
+      const logoUrl = await uploadImageToCloudinary(file);
+      const existing = brands.find(b => b.name === brand);
+      if(existing) await updateDoc(doc(db, 'brands', existing.id), { logoUrl });
+      else await addDoc(collection(db, 'brands'), { name: brand, logoUrl });
+      openBrandView(brand);
+    } catch(err){
+      console.error('Brand logo upload failed:', err);
+      alert('Could not upload this logo. Please try again.');
+    }
+  };
+  input.click();
+};
+
+// ---- Article view: every Material used on this Article (its full BOM), with its photo ----
+window.openArticleView = (brand, no)=>{
+  const rowsRaw = [];
+  let qty = '', imageUrl = '';
+  materials.forEach(m => m.articles.forEach(a => {
+    if(a.brand !== brand || a.no !== no) return;
+    if(!qty && a.qty) qty = a.qty;
+    if(!imageUrl && a.imageUrl) imageUrl = a.imageUrl;
+    rowsRaw.push({ material: m, article: a });
+  }));
+  const brandEsc = brand.replace(/'/g,"\\'");
+
+  document.getElementById('detailSheet').innerHTML = `
+    <div class="sheet-head">
+      <i class="fa-solid fa-arrow-left" onclick="openBrandView('${brandEsc}')"></i>
+      <span class="sheet-eyebrow">article</span>
+    </div>
+    <div class="detail-hero">
+      <div class="detail-thumb" ${imageUrl ? `onclick="openLightbox('${imageUrl}')"` : ''} style="cursor:${imageUrl ? 'pointer' : 'default'};">
+        ${imageUrl ? `<img src="${imageUrl}" alt="${no}" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">` : `<i class="fa-solid fa-image"></i>`}
+      </div>
+      <div>
+        <div class="detail-title">${brand} &middot; ${no}</div>
+        <span class="badge">${rowsRaw.length} material${rowsRaw.length===1?'':'s'}</span>
+      </div>
+    </div>
+    <div class="summary-strip">
+      <div class="summary-cell"><div class="label">Materials</div><div class="value">${rowsRaw.length}</div></div>
+      <div class="summary-cell accent"><div class="label">Order Qty</div><div class="value">${qty || '—'}</div></div>
+    </div>
+    <div class="used-in">Bill of materials</div>
+    ${rowsRaw.map(({material, article}) => `
+      <div class="drill-row" onclick="openDetail('${material.id}')">
+        <div class="drill-icon"><i class="${iconFor(material.type)}"></i></div>
+        <div class="drill-info">
+          <div class="drill-title">${material.name}</div>
+          <div class="drill-sub">${material.type} &middot; ${article.consumption || '—'} &middot; $${fmt(currentUsd(article.rmb))}</div>
+        </div>
+        <i class="fa-solid fa-chevron-right drill-arrow"></i>
+      </div>
+    `).join('')}
+  `;
+  document.getElementById('detailOverlay').classList.add('open');
+};
 
 // ---- Remove one Article link from one material (Editor/Master) ----
 window.deleteArticleLink = async (materialId, brand, no, entryDate)=>{
@@ -494,6 +718,59 @@ window.openEditMaterial = (id)=>{
   };
 };
 
+// ---- Edit one specific Article link (brand / article no / qty / consumption / price) ----
+window.openEditArticleLink = (materialId, brand, no, entryDate)=>{
+  const m = materials.find(x=>x.id===materialId);
+  if(!m) return;
+  const a = m.articles.find(x => x.brand===brand && x.no===no && x.entryDate===entryDate);
+  if(!a) return;
+
+  document.getElementById('detailSheet').innerHTML = `
+    <div class="sheet-head">
+      <i class="fa-solid fa-arrow-left" onclick="openDetail('${materialId}')"></i>
+      <span class="sheet-eyebrow">Edit article link</span>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Brand</label><input id="eaBrand" list="brandOptions" value="${brand.replace(/"/g,'&quot;')}"></div>
+      <div class="field"><label>Article No</label><input id="eaArticle" value="${no.replace(/"/g,'&quot;')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Order Qty</label><input id="eaQty" value="${(a.qty||'').replace(/"/g,'&quot;')}"></div>
+      <div class="field"><label>Consumption</label><input id="eaConsumption" value="${(a.consumption||'').replace(/"/g,'&quot;')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Price (RMB)</label><input id="eaRmb" type="number" value="${a.rmb}"></div>
+      <div class="field"><label>Entry-time price (USD)</label><input id="eaUsd" type="number" value="${a.usdEntry}"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" onclick="openDetail('${materialId}')">Cancel</button>
+      <button class="btn primary" id="saveEditArticleLink">Save changes</button>
+    </div>
+  `;
+  document.getElementById('saveEditArticleLink').onclick = async ()=>{
+    const newBrand = document.getElementById('eaBrand').value.trim();
+    const newNo = document.getElementById('eaArticle').value.trim();
+    const qty = document.getElementById('eaQty').value.trim();
+    const consumption = document.getElementById('eaConsumption').value.trim();
+    const rmb = parseFloat(document.getElementById('eaRmb').value) || 0;
+    const usdEntry = parseFloat(document.getElementById('eaUsd').value) || 0;
+    if(!newBrand || !newNo) return;
+
+    const updatedArticles = m.articles.map(x =>
+      (x.brand===brand && x.no===no && x.entryDate===entryDate)
+        ? { ...x, brand: newBrand, no: newNo, qty, consumption, rmb, usdEntry }
+        : x
+    );
+    try{
+      await updateDoc(doc(db, 'materials', materialId), { articles: updatedArticles });
+      openDetail(materialId);
+    } catch(err){
+      console.error('Could not save article link:', err);
+      alert(`Couldn't save this: ${err.message}`);
+    }
+  };
+};
+
 // ---- Attach a photo to one specific Article link that has no image yet (e.g. from Excel import) ----
 // Find a photo that's already been attached to this Article (brand + article no)
 // anywhere in the database, so we never have to ask for the same shoe photo twice.
@@ -501,6 +778,16 @@ function getKnownArticleImage(brand, no){
   for(const m of materials){
     const hit = m.articles.find(a => a.brand === brand && a.no === no && a.imageUrl);
     if(hit) return hit.imageUrl;
+  }
+  return '';
+}
+
+// Same idea for Order Qty — one Article has one order quantity, no need to retype it
+// for every material.
+function getKnownArticleQty(brand, no){
+  for(const m of materials){
+    const hit = m.articles.find(a => a.brand === brand && a.no === no && a.qty);
+    if(hit) return hit.qty;
   }
   return '';
 }
@@ -649,6 +936,10 @@ window.convertRmb = ()=>{
   const rmb = parseFloat(document.getElementById('fRmb').value);
   if(!isNaN(rmb)) document.getElementById('fUsd').value = fmt(currentUsd(rmb));
 };
+window.convertUsd = ()=>{
+  const usd = parseFloat(document.getElementById('fUsd').value);
+  if(!isNaN(usd) && EXCHANGE_RATE > 0) document.getElementById('fRmb').value = fmt(usd / EXCHANGE_RATE);
+};
 
 function resetForm(){
   ['fBrand','fArticle','fName','fType','fWidth','fConsumption','fRmb','fUsd'].forEach(id => document.getElementById(id).value = '');
@@ -671,6 +962,7 @@ document.getElementById('saveForm').onclick = async ()=>{
     const type = document.getElementById('fType').value.trim() || 'Uncategorized';
     const width = document.getElementById('fWidth').value.trim();
     const consumption = document.getElementById('fConsumption').value.trim();
+    const qty = document.getElementById('fQty').value.trim() || getKnownArticleQty(brand, article);
     const rmb = parseFloat(document.getElementById('fRmb').value) || 0;
     const usdTyped = parseFloat(document.getElementById('fUsd').value);
     const usd = !isNaN(usdTyped) ? usdTyped : currentUsd(rmb);
@@ -685,7 +977,7 @@ document.getElementById('saveForm').onclick = async ()=>{
       }
     }
 
-    const newArticle = { brand, no: article, rmb, usdEntry: usd, entryDate, consumption: consumption || '—', imageUrl };
+    const newArticle = { brand, no: article, qty, rmb, usdEntry: usd, entryDate, consumption: consumption || '—', imageUrl };
 
     const material = materials.find(m => m.name.toLowerCase() === name.toLowerCase());
     if(material){
@@ -726,6 +1018,7 @@ document.getElementById('saveForm').onclick = async ()=>{
 let parsedRows = [];       // working set for the currently open upload
 let parsedBrand = '';
 let parsedArticleNo = '';
+let parsedQty = '';
 
 function renderUploadStart(){
   document.getElementById('uploadSheet').innerHTML = `
@@ -802,7 +1095,7 @@ function parseSheet(sheetName){
     const sheet = currentWorkbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-    const { brand, articleNo } = extractBrandArticle(rows);
+    const { brand, articleNo, qty } = extractBrandArticle(rows);
     const headerRowIndex = findHeaderRow(rows);
     if(headerRowIndex === -1){
       throw new Error(`Couldn't find a row with recognizable column headers (Material name, Width, Consumption, Cost) on the "${sheetName}" tab.`);
@@ -821,6 +1114,7 @@ function parseSheet(sheetName){
     parsedRows = dataRows.map(row => matchAgainstExisting(row));
     parsedBrand = brand;
     parsedArticleNo = articleNo;
+    parsedQty = qty;
 
     renderParseResults();
   } catch(err){
@@ -849,7 +1143,7 @@ function cellText(v){ return String(v ?? '').trim(); }
 function normLabel(v){ return cellText(v).toLowerCase().replace(/[:\s.]/g, ''); }
 
 function extractBrandArticle(rows){
-  let brand = '', articleNo = '';
+  let brand = '', articleNo = '', qty = '';
   for(let r=0; r<Math.min(rows.length, 20); r++){
     for(let c=0; c<Math.min((rows[r]||[]).length, 30); c++){
       const label = normLabel(rows[r][c]);
@@ -859,9 +1153,12 @@ function extractBrandArticle(rows){
       if(!articleNo && (label === 'articleno' || label === 'articlenumber' || label === 'article')){
         articleNo = findNextNonEmpty(rows[r], c+1);
       }
+      if(!qty && (label === 'orderqty' || label === 'orderquantity' || label === 'qty')){
+        qty = findNextNonEmpty(rows[r], c+1);
+      }
     }
   }
-  return { brand, articleNo };
+  return { brand, articleNo, qty };
 }
 function findNextNonEmpty(row, fromCol){
   for(let c=fromCol; c<row.length; c++){
@@ -988,6 +1285,9 @@ function renderParseResults(){
       <div class="field"><label>Brand</label><input id="parsedBrandInput" value="${parsedBrand}" placeholder="Not detected — type it"></div>
       <div class="field"><label>Article No</label><input id="parsedArticleInput" value="${parsedArticleNo}" placeholder="Not detected — type it"></div>
     </div>
+    <div class="field-row">
+      <div class="field"><label>Order Qty</label><input id="parsedQtyInput" value="${parsedQty}" placeholder="Not detected — optional"></div>
+    </div>
     <div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">
       <span style="color:#3FAE5C; font-weight:600;">${okCount}</span> confirmed matches &middot;
       <span style="color:#C9922E; font-weight:600;">${warnCount}</span> need confirmation
@@ -1041,6 +1341,7 @@ async function importAllParsedRows(){
   }
   const brand = document.getElementById('parsedBrandInput').value.trim();
   const articleNo = document.getElementById('parsedArticleInput').value.trim();
+  const qty = document.getElementById('parsedQtyInput').value.trim() || getKnownArticleQty(brand, articleNo);
   if(!brand || !articleNo){
     alert('Brand and Article No are required — they weren\'t found in the sheet, please type them in.');
     return;
@@ -1073,7 +1374,7 @@ async function importAllParsedRows(){
       // The Excel sheet only gives a USD cost, not RMB — back-calculate an approximate RMB
       // so the "current price" (which is always derived from rmb * today's rate) isn't $0.
       const approxRmb = EXCHANGE_RATE > 0 ? row.usd / EXCHANGE_RATE : 0;
-      const newArticle = { brand, no: articleNo, rmb: approxRmb, usdEntry: row.usd, entryDate, consumption: row.consumption || '—', imageUrl: getKnownArticleImage(brand, articleNo) };
+      const newArticle = { brand, no: articleNo, qty, rmb: approxRmb, usdEntry: row.usd, entryDate, consumption: row.consumption || '—', imageUrl: getKnownArticleImage(brand, articleNo) };
       if(row.resolution === 'use-match' && row.matchedMaterial){
         await updateDoc(doc(db, 'materials', row.matchedMaterial.id), {
           articles: [...row.matchedMaterial.articles, newArticle],
