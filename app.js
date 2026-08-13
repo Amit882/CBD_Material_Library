@@ -295,23 +295,103 @@ function applyRolePermissions(){
 
 let listenersAttached = false;
 function attachDataListeners(){
-  if(listenersAttached) return; // avoid double-subscribing across repeated sign-ins
+  if(listenersAttached) return;
   listenersAttached = true;
 
-  onSnapshot(collection(db, 'materials'), (snap)=>{
-    materials = snap.docs.map(d => ({ id: d.id, ...d.data(), articles: d.data().articles || [] }));
-    syncAll();
-  }, (err)=> console.error('materials listener error:', err));
+  // ==========================================================
+  // 📦 MATERIALS
+  // ==========================================================
 
-  onSnapshot(collection(db, 'users'), (snap)=>{
-    users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if(document.getElementById('usersOverlay').classList.contains('open')) renderUsersList();
-    updatePendingBadge();
-  }, (err)=> console.error('users listener error:', err));
+  onSnapshot(
+    collection(db, 'materials'),
+    (snap)=>{
+      materials = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+        articles: d.data().articles || []
+      }));
 
-  onSnapshot(collection(db, 'brands'), (snap)=>{
-    brands = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  }, (err)=> console.error('brands listener error:', err));
+      syncAll();
+    },
+    (err)=>{
+      console.error('materials listener error:', err);
+    }
+  );
+
+
+  // ==========================================================
+  // 👥 USERS
+  // ==========================================================
+  //
+  // Only Masters need the user-management listener.
+  //
+  // GOD MASTER:
+  //   Can see ALL users.
+  //
+  // NORMAL MASTER:
+  //   Can see everyone EXCEPT GOD MASTER.
+  //
+  // EDITOR / VIEWER:
+  //   No users listener at all.
+  //
+
+  if(currentRole === 'master') {
+
+    const usersRef = collection(db, 'users');
+
+    const usersQuery = isGodMasterUser()
+      ? usersRef
+      : firestoreQuery(
+          usersRef,
+          where(documentId(), '!=', GOD_MASTER_UID)
+        );
+
+    onSnapshot(
+      usersQuery,
+      (snap)=>{
+        users = snap.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        }));
+
+        if(
+          document.getElementById('usersOverlay')
+            .classList.contains('open')
+        ){
+          renderUsersList();
+        }
+
+        updatePendingBadge();
+      },
+      (err)=>{
+        console.error('users listener error:', err);
+      }
+    );
+
+  } else {
+
+    // Non-masters should never keep a users list in memory.
+    users = [];
+
+  }
+
+
+  // ==========================================================
+  // 🏷️ BRANDS
+  // ==========================================================
+
+  onSnapshot(
+    collection(db, 'brands'),
+    (snap)=>{
+      brands = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+    },
+    (err)=>{
+      console.error('brands listener error:', err);
+    }
+  );
 }
 
 // =========================================================
