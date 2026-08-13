@@ -2637,56 +2637,272 @@ function matchAgainstExisting(row){
 // ---- Results UI ----
 
 function renderParseResults(){
-  const okCount = parsedRows.filter(r=>r.status!=='warn').length;
-  const warnCount = parsedRows.filter(r=>r.status==='warn').length;
+
+  const okCount =
+    parsedRows.filter(r => r.status !== 'warn').length;
+
+  const warnCount =
+    parsedRows.filter(r => r.status === 'warn').length;
+
+  const safeBrand =
+    escapeAttr(parsedBrand);
+
+  const safeArticle =
+    escapeAttr(parsedArticleNo);
+
+  const safeQty =
+    escapeAttr(parsedQty);
+
   document.getElementById('uploadSheet').innerHTML = `
+
     <div class="sheet-head">
-      <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
-      <span class="sheet-eyebrow">${parsedRows.length} rows found</span>
+
+      <i
+        class="fa-solid fa-xmark"
+        onclick="document.getElementById('uploadOverlay').classList.remove('open')">
+      </i>
+
+      <span class="sheet-eyebrow">
+        ${parsedRows.length} rows found
+      </span>
+
     </div>
+
+
     <div class="field-row">
-      <div class="field"><label>Brand</label><input id="parsedBrandInput" value="${parsedBrand}" placeholder="Not detected — type it"></div>
-      <div class="field"><label>Article No</label><input id="parsedArticleInput" value="${parsedArticleNo}" placeholder="Not detected — type it"></div>
+
+      <div class="field">
+
+        <label>
+          Brand
+        </label>
+
+        <input
+          id="parsedBrandInput"
+          value="${safeBrand}"
+          placeholder="Not detected — type it">
+
+      </div>
+
+
+      <div class="field">
+
+        <label>
+          Article No
+        </label>
+
+        <input
+          id="parsedArticleInput"
+          value="${safeArticle}"
+          placeholder="Not detected — type it">
+
+      </div>
+
     </div>
+
+
     <div class="field-row">
-      <div class="field"><label>Order Qty</label><input id="parsedQtyInput" value="${parsedQty}" placeholder="Not detected — optional"></div>
+
+      <div class="field">
+
+        <label>
+          Order Qty
+        </label>
+
+        <input
+          id="parsedQtyInput"
+          value="${safeQty}"
+          placeholder="Not detected — optional">
+
+      </div>
+
     </div>
-    <div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">
-      <span style="color:#3FAE5C; font-weight:600;">${okCount}</span> confirmed matches &middot;
-      <span style="color:#C9922E; font-weight:600;">${warnCount}</span> need confirmation
+
+
+    <div
+      style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">
+
+      <span
+        style="color:#3FAE5C; font-weight:600;">
+        ${okCount}
+      </span>
+
+      confirmed matches
+
+      &middot;
+
+      <span
+        style="color:#C9922E; font-weight:600;">
+        ${warnCount}
+      </span>
+
+      need confirmation
+
     </div>
+
+
     <div id="parseRows"></div>
+
+
     <div class="btn-row">
-      <button class="btn" onclick="document.getElementById('uploadOverlay').classList.remove('open')">Cancel</button>
-      <button class="btn primary" id="importAllBtn">Import all</button>
+
+      <button
+        class="btn"
+        onclick="document.getElementById('uploadOverlay').classList.remove('open')">
+        Cancel
+      </button>
+
+      <button
+        class="btn primary"
+        id="importAllBtn">
+        Import all
+      </button>
+
     </div>
+
   `;
-  document.getElementById('importAllBtn').onclick = importAllParsedRows;
+
+  document
+    .getElementById('importAllBtn')
+    .onclick = importAllParsedRows;
+
   renderParseRowsList();
 }
 
 function renderParseRowsList(){
-  document.getElementById('parseRows').innerHTML = parsedRows.map((r,i)=>{
-    const resolved = r.status !== 'warn';
-    const matchLabel = r.status === 'ok-match'
-      ? `auto-matched: <b>${r.matchedMaterial.name}</b>`
-      : r.status === 'warn'
-      ? `matches existing: <b>${r.matchedMaterial.name}</b> &middot; use this?`
-      : `new material`;
-    return `
-    <div class="parse-row ${resolved ? 'resolved' : ''}" id="prow-${i}">
-      <div class="parse-status ${resolved ? 'ok' : 'warn'}"><i class="fa-solid ${resolved ? 'fa-check' : 'fa-circle-question'}"></i></div>
-      <div class="parse-info">
-        <div class="parse-name">${r.name}</div>
-        <div class="parse-sub" id="psub-${i}">${r.category} &middot; ${r.width || '—'} &middot; ${r.consumption || '—'} &middot; $${fmt(r.usd)} &middot; ${matchLabel}</div>
-      </div>
-      ${r.status==='warn' ? `
-      <div class="parse-actions" id="pactions-${i}">
-        <button class="mini-btn yes" onclick="resolveRow(${i}, true)">Yes</button>
-        <button class="mini-btn" onclick="resolveRow(${i}, false)">New</button>
-      </div>` : ''}
-    </div>`;
-  }).join('');
+
+  document.getElementById('parseRows').innerHTML =
+    parsedRows.map((r, i) => {
+
+      const resolved =
+        r.status !== 'warn';
+
+      const safeName =
+        escapeHtml(r.name || '');
+
+      const safeCategory =
+        escapeHtml(r.category || 'Uncategorized');
+
+      const safeWidth =
+        escapeHtml(r.width || '—');
+
+      const safeConsumption =
+        escapeHtml(r.consumption || '—');
+
+
+      const safeMatchName =
+        r.matchedMaterial
+          ? escapeHtml(r.matchedMaterial.name || '')
+          : '';
+
+
+      const matchLabel =
+        r.status === 'ok-match'
+
+          ? `
+            auto-matched:
+            <b>${safeMatchName}</b>
+          `
+
+          : r.status === 'warn'
+
+            ? `
+              matches existing:
+              <b>${safeMatchName}</b>
+              &middot;
+              use this?
+            `
+
+            : `
+              new material
+            `;
+
+
+      return `
+
+        <div
+          class="parse-row ${resolved ? 'resolved' : ''}"
+          id="prow-${i}">
+
+          <div
+            class="parse-status ${resolved ? 'ok' : 'warn'}">
+
+            <i
+              class="fa-solid ${
+                resolved
+                  ? 'fa-check'
+                  : 'fa-circle-question'
+              }">
+            </i>
+
+          </div>
+
+
+          <div class="parse-info">
+
+            <div class="parse-name">
+              ${safeName}
+            </div>
+
+
+            <div
+              class="parse-sub"
+              id="psub-${i}">
+
+              ${safeCategory}
+
+              &middot;
+
+              ${safeWidth}
+
+              &middot;
+
+              ${safeConsumption}
+
+              &middot;
+
+              $${fmt(r.usd)}
+
+              &middot;
+
+              ${matchLabel}
+
+            </div>
+
+          </div>
+
+
+          ${
+            r.status === 'warn'
+              ? `
+
+                <div
+                  class="parse-actions"
+                  id="pactions-${i}">
+
+                  <button
+                    class="mini-btn yes"
+                    onclick="resolveRow(${i}, true)">
+                    Yes
+                  </button>
+
+                  <button
+                    class="mini-btn"
+                    onclick="resolveRow(${i}, false)">
+                    New
+                  </button>
+
+                </div>
+
+              `
+              : ''
+          }
+
+        </div>
+
+      `;
+
+    }).join('');
 }
 
 window.resolveRow = (i, useMatch)=>{
