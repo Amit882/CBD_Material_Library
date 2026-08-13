@@ -414,8 +414,29 @@ function updatePendingBadge(){
 }
 
 function renderUsersList(){
-  const pending = users.filter(u => u.status !== 'approved');
-  const approved = users.filter(u => u.status === 'approved');
+  function renderUsersList(){
+
+  // ==========================================================
+  // SECURITY UI FALLBACK
+  // ==========================================================
+  //
+  // Normal Master should NEVER see the GOD MASTER.
+  //
+  // GOD MASTER can see everyone.
+  //
+
+  const visibleUsers = isGodMasterUser()
+    ? users
+    : users.filter(u => u.id !== GOD_MASTER_UID);
+
+
+  const pending = visibleUsers.filter(
+    u => u.status !== 'approved'
+  );
+
+  const approved = visibleUsers.filter(
+    u => u.status === 'approved'
+  );
 
   document.getElementById('usersSheet').innerHTML = `
     <div class="sheet-head">
