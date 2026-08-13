@@ -215,6 +215,7 @@ async function bootstrapUserDoc(uid, name, email){
       email,
       role: 'viewer',
       status: 'pending',
+      isGodMaster: false,
       createdAt: serverTimestamp()
     }
   );
