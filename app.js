@@ -2127,16 +2127,51 @@ window.deleteMaterial = async (id)=>{
 };
 
 function renderBrandOptions(){
-  const brands = new Set();
-  materials.forEach(m => m.articles.forEach(a => brands.add(a.brand)));
-  document.getElementById('brandOptions').innerHTML =
-    [...brands].sort().map(b => `<option value="${b}"></option>`).join('');
-}
 
+  const brandSet = new Set();
+
+  materials.forEach(m =>
+    m.articles.forEach(a => {
+
+      if(a.brand){
+        brandSet.add(a.brand);
+      }
+
+    })
+  );
+
+
+  document.getElementById('brandOptions').innerHTML =
+
+    [...brandSet]
+      .sort()
+      .map(b => `
+
+        <option
+          value="${escapeAttr(b)}">
+        </option>
+
+      `)
+      .join('');
+}
 function renderCategoryOptions(){
-  const el = document.getElementById('fTypeOptions');
+
+  const el =
+    document.getElementById('fTypeOptions');
+
   if(!el) return;
-  el.innerHTML = allKnownCategories().map(c => `<option value="${c}"></option>`).join('');
+
+
+  el.innerHTML =
+    allKnownCategories()
+      .map(c => `
+
+        <option
+          value="${escapeAttr(c)}">
+        </option>
+
+      `)
+      .join('');
 }
 
 function syncAll(){
