@@ -1185,49 +1185,201 @@ window.uploadBrandLogo = (brand)=>{
 
 // ---- Article view: every Material used on this Article (its full BOM), with its photo ----
 window.openArticleView = (brand, no)=>{
+
   const rowsRaw = [];
-  let qty = '', imageUrl = '';
+
+  let qty = '';
+  let imageUrl = '';
+
   materials.forEach(m => m.articles.forEach(a => {
-    if(a.brand !== brand || a.no !== no) return;
-    if(!qty && a.qty) qty = a.qty;
-    if(!imageUrl && a.imageUrl) imageUrl = a.imageUrl;
-    rowsRaw.push({ material: m, article: a });
+
+    if(a.brand !== brand || a.no !== no){
+      return;
+    }
+
+    if(!qty && a.qty){
+      qty = a.qty;
+    }
+
+    if(!imageUrl && a.imageUrl){
+      imageUrl = a.imageUrl;
+    }
+
+    rowsRaw.push({
+      material: m,
+      article: a
+    });
+
   }));
-  const brandEsc = brand.replace(/'/g,"\\'");
+
+  const brandArg =
+    escapeAttr(JSON.stringify(brand));
+
+  const noArg =
+    escapeAttr(JSON.stringify(no));
+
+  const safeBrand =
+    escapeHtml(brand);
+
+  const safeNo =
+    escapeHtml(no);
+
+  const safeQty =
+    escapeHtml(qty || '—');
+
+  const safeImage =
+    escapeAttr(imageUrl || '');
 
   document.getElementById('detailSheet').innerHTML = `
-    <div class="sheet-head">
-      <i class="fa-solid fa-arrow-left" onclick="openBrandView('${brandEsc}')"></i>
-      <span class="sheet-eyebrow">article</span>
-    </div>
-    <div class="detail-hero">
-      <div class="detail-thumb" ${imageUrl ? `onclick="openLightbox('${imageUrl}')"` : ''} style="cursor:${imageUrl ? 'pointer' : 'default'};">
-        ${imageUrl ? `<img src="${imageUrl}" alt="${no}" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">` : `<i class="fa-solid fa-image"></i>`}
-      </div>
-      <div>
-        <div class="detail-title">${brand} &middot; ${no}</div>
-        <span class="badge">${rowsRaw.length} material${rowsRaw.length===1?'':'s'}</span>
-      </div>
-    </div>
-    <div class="summary-strip">
-      <div class="summary-cell"><div class="label">Materials</div><div class="value">${rowsRaw.length}</div></div>
-      <div class="summary-cell accent"><div class="label">Order Qty</div><div class="value">${qty || '—'}</div></div>
-    </div>
-    <div class="used-in">Bill of materials</div>
-    ${rowsRaw.map(({material, article}) => `
-      <div class="drill-row" onclick="openDetail('${material.id}')">
-        <div class="drill-icon"><i class="${iconFor(material.type)}"></i></div>
-        <div class="drill-info">
-          <div class="drill-title">${material.name}</div>
-          <div class="drill-sub">${material.type} &middot; ${article.consumption || '—'} &middot; $${fmt(currentUsd(article.rmb))}</div>
-        </div>
-        <i class="fa-solid fa-chevron-right drill-arrow"></i>
-      </div>
-    `).join('')}
-  `;
-  document.getElementById('detailOverlay').classList.add('open');
-};
 
+    <div class="sheet-head">
+
+      <i
+        class="fa-solid fa-arrow-left"
+        onclick="openBrandView(${brandArg})">
+      </i>
+
+      <span class="sheet-eyebrow">
+        article
+      </span>
+
+    </div>
+
+    <div class="detail-hero">
+
+      <div
+        class="detail-thumb"
+        ${
+          imageUrl
+            ? `onclick="openLightbox(${safeImage})"`
+            : ''
+        }
+        style="cursor:${imageUrl ? 'pointer' : 'default'};">
+
+        ${
+          imageUrl
+            ? `
+              <img
+                src="${safeImage}"
+                alt="${escapeAttr(no)}"
+                style="width:100%;height:100%;object-fit:cover;border-radius:12px;">
+            `
+            : `
+              <i class="fa-solid fa-image"></i>
+            `
+        }
+
+      </div>
+
+      <div>
+
+        <div class="detail-title">
+          ${safeBrand} &middot; ${safeNo}
+        </div>
+
+        <span class="badge">
+          ${rowsRaw.length}
+          material${rowsRaw.length===1?'':'s'}
+        </span>
+
+      </div>
+
+    </div>
+
+    <div class="summary-strip">
+
+      <div class="summary-cell">
+
+        <div class="label">
+          Materials
+        </div>
+
+        <div class="value">
+          ${rowsRaw.length}
+        </div>
+
+      </div>
+
+      <div class="summary-cell accent">
+
+        <div class="label">
+          Order Qty
+        </div>
+
+        <div class="value">
+          ${safeQty}
+        </div>
+
+      </div>
+
+    </div>
+
+    <div class="used-in">
+      Bill of materials
+    </div>
+
+    ${rowsRaw.map(({material, article}) => {
+
+      const materialIdArg =
+        escapeAttr(JSON.stringify(material.id));
+
+      const materialName =
+        escapeHtml(material.name || '');
+
+      const materialType =
+        escapeHtml(material.type || '');
+
+      const consumption =
+        escapeHtml(article.consumption || '—');
+
+      const icon =
+        escapeAttr(iconFor(material.type));
+
+      return `
+
+        <div
+          class="drill-row"
+          onclick="openDetail(${materialIdArg})">
+
+          <div class="drill-icon">
+
+            <i class="${icon}"></i>
+
+          </div>
+
+          <div class="drill-info">
+
+            <div class="drill-title">
+              ${materialName}
+            </div>
+
+            <div class="drill-sub">
+
+              ${materialType}
+              &middot;
+              ${consumption}
+              &middot;
+              $${fmt(currentUsd(article.rmb))}
+
+            </div>
+
+          </div>
+
+          <i class="fa-solid fa-chevron-right drill-arrow"></i>
+
+        </div>
+
+      `;
+
+    }).join('')}
+
+  `;
+
+  document
+    .getElementById('detailOverlay')
+    .classList
+    .add('open');
+};
 // ---- Remove one Article link from one material (Editor/Master) ----
 window.deleteArticleLink = async (materialId, brand, no, entryDate)=>{
   if(!confirm(`Remove ${brand} ${no} from this material? This only affects this one material.`)) return;
