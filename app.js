@@ -992,35 +992,123 @@ window.openAllArticles = ()=>{
 };
 
 window.openAllBrands = ()=>{
-  const map = new Map(); // brand -> { articleCount, materialCount, logoUrl }
+
+  const map = new Map();
+
   materials.forEach(m => m.articles.forEach(a => {
-    const entry = map.get(a.brand) || { articles: new Set(), materialCount: 0 };
-    entry.articles.add(a.no);
+
+    const brand = a.brand || '';
+
+    const entry =
+      map.get(brand) ||
+      {
+        articles: new Set(),
+        materialCount: 0
+      };
+
+    entry.articles.add(a.no || '');
     entry.materialCount++;
-    map.set(a.brand, entry);
+
+    map.set(brand, entry);
+
   }));
-  const rows = [...map.entries()].sort((a,b)=> b[1].materialCount - a[1].materialCount);
+
+  const rows = [...map.entries()]
+    .sort((a,b)=> b[1].materialCount - a[1].materialCount);
 
   document.getElementById('detailSheet').innerHTML = `
+
     <div class="sheet-head">
-      <i class="fa-solid fa-xmark" onclick="closeDetail()"></i>
-      <span class="sheet-eyebrow">All brands</span>
+
+      <i
+        class="fa-solid fa-xmark"
+        onclick="closeDetail()">
+      </i>
+
+      <span class="sheet-eyebrow">
+        All brands
+      </span>
+
     </div>
-    <div class="used-in">${rows.length} brand${rows.length===1?'':'s'}</div>
+
+    <div class="used-in">
+
+      ${rows.length}
+      brand${rows.length===1?'':'s'}
+
+    </div>
+
     ${rows.map(([brand, info]) => {
-      const logoUrl = getBrandLogo(brand);
+
+      const brandArg =
+        escapeAttr(JSON.stringify(brand));
+
+      const safeBrand =
+        escapeHtml(brand);
+
+      const logoUrl =
+        getBrandLogo(brand) || '';
+
+      const safeLogo =
+        escapeAttr(logoUrl);
+
       return `
-      <div class="drill-row" onclick="openBrandView('${brand.replace(/'/g,"\\'")}')">
-        <div class="drill-thumb">${logoUrl ? `<img src="${logoUrl}" alt="${brand}">` : `<i class="fa-solid fa-building"></i>`}</div>
-        <div class="drill-info">
-          <div class="drill-title">${brand}</div>
-          <div class="drill-sub">${info.articles.size} article${info.articles.size===1?'':'s'} &middot; ${info.materialCount} material link${info.materialCount===1?'':'s'}</div>
+
+        <div
+          class="drill-row"
+          onclick="openBrandView(${brandArg})">
+
+          <div class="drill-thumb">
+
+            ${
+              logoUrl
+                ? `
+                  <img
+                    src="${safeLogo}"
+                    alt="${escapeAttr(brand)}"
+                    loading="lazy">
+                `
+                : `
+                  <i class="fa-solid fa-building"></i>
+                `
+            }
+
+          </div>
+
+          <div class="drill-info">
+
+            <div class="drill-title">
+              ${safeBrand}
+            </div>
+
+            <div class="drill-sub">
+
+              ${info.articles.size}
+              article${info.articles.size===1?'':'s'}
+
+              &middot;
+
+              ${info.materialCount}
+              material link${info.materialCount===1?'':'s'}
+
+            </div>
+
+          </div>
+
+          <i class="fa-solid fa-chevron-right drill-arrow"></i>
+
         </div>
-        <i class="fa-solid fa-chevron-right drill-arrow"></i>
-      </div>
-    `;}).join('')}
+
+      `;
+
+    }).join('')}
+
   `;
-  document.getElementById('detailOverlay').classList.add('open');
+
+  document
+    .getElementById('detailOverlay')
+    .classList
+    .add('open');
 };
 
 // ---- Brand detail: its logo (uploadable) + every Article under this Brand ----
