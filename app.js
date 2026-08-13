@@ -494,29 +494,62 @@ function categoryTier(type){
 
 function renderList(){
   const filtered = getFilteredMaterials();
+
   filtered.sort((a,b)=>{
     const tierDiff = categoryTier(a.type) - categoryTier(b.type);
     if(tierDiff !== 0) return tierDiff;
-    return b.articles.length - a.articles.length; // within the same tier, most-used material first
+
+    return b.articles.length - a.articles.length;
   });
+
   const list = document.getElementById('list');
-  if(filtered.length===0){
+
+  if(filtered.length === 0){
     list.innerHTML = `<div class="empty">No results found</div>`;
     return;
   }
-  list.innerHTML = filtered.map(m=>{
+
+  list.innerHTML = filtered.map(m => {
+
     const latest = sortedArticles(m)[0];
-    return `<div class="card" onclick="openDetail('${m.id}')">
-      <div class="cat-icon"><i class="${iconFor(m.type)}"></i></div>
-      <div class="card-info">
-        <div class="name">${m.name}</div>
-        <div class="meta">${m.type} &middot; used in ${m.articles.length} articles</div>
+
+    const materialId = escapeAttr(JSON.stringify(m.id));
+    const materialName = escapeHtml(m.name || '');
+    const materialType = escapeHtml(m.type || '');
+
+    return `
+      <div
+        class="card"
+        onclick="openDetail(${materialId})">
+
+        <div class="cat-icon">
+          <i class="${escapeAttr(iconFor(m.type))}"></i>
+        </div>
+
+        <div class="card-info">
+          <div class="name">
+            ${materialName}
+          </div>
+
+          <div class="meta">
+            ${materialType}
+            &middot;
+            used in ${m.articles.length} articles
+          </div>
+        </div>
+
+        <div class="card-price">
+          <div class="usd">
+            $${fmt(currentUsd(latest.rmb))}
+          </div>
+
+          <div class="rmb">
+            &yen;${fmt(latest.rmb)}
+          </div>
+        </div>
+
       </div>
-      <div class="card-price">
-        <div class="usd">$${fmt(currentUsd(latest.rmb))}</div>
-        <div class="rmb">&yen;${fmt(latest.rmb)}</div>
-      </div>
-    </div>`;
+    `;
   }).join('');
 }
 window.openDetail = openDetail;
