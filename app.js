@@ -1113,51 +1113,212 @@ window.openAllBrands = ()=>{
 
 // ---- Brand detail: its logo (uploadable) + every Article under this Brand ----
 window.openBrandView = (brand)=>{
-  const articleMap = new Map(); // articleNo -> { qty, materialCount, imageUrl }
+
+  const articleMap = new Map();
+
   materials.forEach(m => m.articles.forEach(a => {
+
     if(a.brand !== brand) return;
-    const entry = articleMap.get(a.no) || { qty: a.qty || '', materialCount: 0, imageUrl: '' };
+
+    const entry =
+      articleMap.get(a.no) || {
+        qty: a.qty || '',
+        materialCount: 0,
+        imageUrl: ''
+      };
+
     entry.materialCount++;
-    if(!entry.qty && a.qty) entry.qty = a.qty;
-    if(!entry.imageUrl && a.imageUrl) entry.imageUrl = a.imageUrl;
+
+    if(!entry.qty && a.qty){
+      entry.qty = a.qty;
+    }
+
+    if(!entry.imageUrl && a.imageUrl){
+      entry.imageUrl = a.imageUrl;
+    }
+
     articleMap.set(a.no, entry);
+
   }));
-  const rows = [...articleMap.entries()].sort((a,b)=> b[1].materialCount - a[1].materialCount);
-  const brandEsc = brand.replace(/'/g,"\\'");
-  const logoUrl = getBrandLogo(brand);
-  const canEdit = currentRole !== 'viewer';
+
+  const rows = [...articleMap.entries()]
+    .sort((a,b)=> b[1].materialCount - a[1].materialCount);
+
+  // ----------------------------------------------------------
+  // SECURITY: never place raw Firestore values inside HTML
+  // or JavaScript attributes.
+  // ----------------------------------------------------------
+
+  const brandArg =
+    escapeAttr(JSON.stringify(brand));
+
+  const safeBrand =
+    escapeHtml(brand);
+
+  const logoUrl =
+    getBrandLogo(brand) || '';
+
+  const safeLogo =
+    escapeAttr(logoUrl);
+
+  const canEdit =
+    currentRole === 'master' ||
+    currentRole === 'editor';
 
   document.getElementById('detailSheet').innerHTML = `
-    <div class="sheet-head">
-      <i class="fa-solid fa-arrow-left" onclick="openAllBrands()"></i>
-      <span class="sheet-eyebrow">brand</span>
-    </div>
-    <div class="detail-hero">
-      <div class="detail-thumb-wrap">
-        <div class="detail-thumb" ${logoUrl ? `onclick="openLightbox('${logoUrl}')"` : ''} style="cursor:${logoUrl ? 'pointer' : 'default'};">
-          ${logoUrl ? `<img src="${logoUrl}" alt="${brand}" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">` : `<i class="fa-solid fa-building"></i>`}
-        </div>
-        ${canEdit ? `<i class="fa-solid fa-pen thumb-edit-badge" title="${logoUrl ? 'Change' : 'Add'} brand logo" onclick="uploadBrandLogo('${brandEsc}')"></i>` : ''}
-      </div>
-      <div>
-        <div class="detail-title">${brand}</div>
-        <span class="badge">${rows.length} article${rows.length===1?'':'s'}</span>
-      </div>
-    </div>
-    ${rows.map(([no, info]) => `
-      <div class="drill-row" onclick="openArticleView('${brandEsc}','${no.replace(/'/g,"\\'")}')">
-        <div class="drill-thumb">${info.imageUrl ? `<img src="${info.imageUrl}" alt="${no}">` : `<i class="fa-solid fa-image"></i>`}</div>
-        <div class="drill-info">
-          <div class="drill-title">${no}</div>
-          <div class="drill-sub">${info.qty ? `Qty: ${info.qty} &middot; ` : ''}${info.materialCount} material${info.materialCount===1?'':'s'}</div>
-        </div>
-        <i class="fa-solid fa-chevron-right drill-arrow"></i>
-      </div>
-    `).join('')}
-  `;
-  document.getElementById('detailOverlay').classList.add('open');
-};
 
+    <div class="sheet-head">
+
+      <i
+        class="fa-solid fa-arrow-left"
+        onclick="openAllBrands()">
+      </i>
+
+      <span class="sheet-eyebrow">
+        brand
+      </span>
+
+    </div>
+
+
+    <div class="detail-hero">
+
+      <div class="detail-thumb-wrap">
+
+        <div
+          class="detail-thumb"
+          ${
+            logoUrl
+              ? `onclick="openLightbox(${safeLogo})"`
+              : ''
+          }
+          style="cursor:${logoUrl ? 'pointer' : 'default'};">
+
+          ${
+            logoUrl
+              ? `
+                <img
+                  src="${safeLogo}"
+                  alt="${escapeAttr(brand)}"
+                  style="width:100%;height:100%;object-fit:cover;border-radius:12px;">
+              `
+              : `
+                <i class="fa-solid fa-building"></i>
+              `
+          }
+
+        </div>
+
+
+        ${
+          canEdit
+            ? `
+              <i
+                class="fa-solid fa-pen thumb-edit-badge"
+                title="${logoUrl ? 'Change' : 'Add'} brand logo"
+                onclick="uploadBrandLogo(${brandArg})">
+              </i>
+            `
+            : ''
+        }
+
+      </div>
+
+
+      <div>
+
+        <div class="detail-title">
+          ${safeBrand}
+        </div>
+
+        <span class="badge">
+          ${rows.length}
+          article${rows.length === 1 ? '' : 's'}
+        </span>
+
+      </div>
+
+    </div>
+
+
+    ${rows.map(([no, info]) => {
+
+      const noArg =
+        escapeAttr(JSON.stringify(no));
+
+      const safeNo =
+        escapeHtml(no);
+
+      const safeQty =
+        escapeHtml(info.qty || '');
+
+      const imageUrl =
+        info.imageUrl || '';
+
+      const safeImage =
+        escapeAttr(imageUrl);
+
+      return `
+
+        <div
+          class="drill-row"
+          onclick="openArticleView(${brandArg},${noArg})">
+
+          <div class="drill-thumb">
+
+            ${
+              imageUrl
+                ? `
+                  <img
+                    src="${safeImage}"
+                    alt="${escapeAttr(no)}"
+                    loading="lazy">
+                `
+                : `
+                  <i class="fa-solid fa-image"></i>
+                `
+            }
+
+          </div>
+
+
+          <div class="drill-info">
+
+            <div class="drill-title">
+              ${safeNo}
+            </div>
+
+            <div class="drill-sub">
+
+              ${
+                safeQty
+                  ? `Qty: ${safeQty} &middot; `
+                  : ''
+              }
+
+              ${info.materialCount}
+              material${info.materialCount === 1 ? '' : 's'}
+
+            </div>
+
+          </div>
+
+
+          <i class="fa-solid fa-chevron-right drill-arrow"></i>
+
+        </div>
+
+      `;
+
+    }).join('')}
+
+  `;
+
+  document
+    .getElementById('detailOverlay')
+    .classList
+    .add('open');
+};
 window.uploadBrandLogo = (brand)=>{
   if(!isCloudinaryConfigured){
     alert('Photo storage isn\'t connected yet — open cloudinary-config.js and paste in your cloud name and upload preset.');
