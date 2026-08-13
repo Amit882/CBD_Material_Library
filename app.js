@@ -555,73 +555,290 @@ function renderList(){
 window.openDetail = openDetail;
 
 function openDetail(id){
-  const m = materials.find(x=>x.id===id);
+  const m = materials.find(x => x.id === id);
   if(!m) return;
+
   const articles = sortedArticles(m);
-  const prices = articles.map(a=>currentUsd(a.rmb));
-  const minP = Math.min(...prices), maxP = Math.max(...prices);
+
+  const prices = articles
+    .map(a => Number(a.rmb))
+    .filter(Number.isFinite);
+
+  const minP = prices.length ? Math.min(...prices) : 0;
+  const maxP = prices.length ? Math.max(...prices) : 0;
+
   const sheet = document.getElementById('detailSheet');
+
+  const materialId = escapeAttr(JSON.stringify(m.id));
+  const materialName = escapeHtml(m.name || '');
+  const materialType = escapeHtml(m.type || '');
+  const materialWidth = escapeHtml(m.width || '—');
+
   sheet.innerHTML = `
     <div class="sheet-head">
-      <i class="fa-solid fa-arrow-left" onclick="closeDetail()"></i>
-      <span class="sheet-eyebrow">material record</span>
+      <i
+        class="fa-solid fa-arrow-left"
+        onclick="closeDetail()">
+      </i>
+
+      <span class="sheet-eyebrow">
+        material record
+      </span>
     </div>
+
     <div class="detail-hero">
-      <div class="detail-thumb"><i class="${iconFor(m.type)}"></i></div>
+
+      <div class="detail-thumb">
+        <i class="${escapeAttr(iconFor(m.type))}"></i>
+      </div>
+
       <div>
-        <div class="detail-title">${m.name}</div>
-        <span class="badge">${m.type}</span>
+        <div class="detail-title">
+          ${materialName}
+        </div>
+
+        <span class="badge">
+          ${materialType}
+        </span>
       </div>
+
     </div>
+
     <div class="summary-strip">
-      <div class="summary-cell"><div class="label">Articles</div><div class="value">${articles.length}</div></div>
-      <div class="summary-cell"><div class="label">Width</div><div class="value">${m.width || '—'}</div></div>
-      <div class="summary-cell accent"><div class="label">Price range</div><div class="value">$${fmt(minP)}&ndash;${fmt(maxP)}</div></div>
-    </div>
-    <div class="used-in">Used in ${articles.length} articles</div>
-    ${articles.map(a=>{
-      const brandEsc = a.brand.replace(/'/g,"\\'");
-      const noEsc = a.no.replace(/'/g,"\\'");
-      const canEdit = currentRole !== 'viewer';
-      return `
-      <div class="article-row">
-        <div class="article-thumb-wrap">
-          <div class="article-thumb" ${a.imageUrl ? `onclick="openLightbox('${a.imageUrl}')"` : (canEdit ? `onclick="addArticlePhoto('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"` : '')}>
-            ${a.imageUrl ? `<img src="${a.imageUrl}" alt="${a.brand}" loading="lazy">` : `<i class="fa-solid ${canEdit ? 'fa-camera' : 'fa-image'}"></i>`}
-          </div>
-          ${canEdit ? `<i class="fa-solid fa-pen thumb-edit-badge" title="Change photo" onclick="addArticlePhoto('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>` : ''}
-        </div>
-        <div class="article-info">
-          <div class="top-line">
-            <span class="brand clickable" onclick="event.stopPropagation(); openBrandView('${brandEsc}')">${a.brand}</span>
-            <span class="no clickable" onclick="event.stopPropagation(); openArticleView('${brandEsc}','${noEsc}')">${a.no}</span>
-          </div>
-          <div class="spec-line">
-            <span class="width"><i class="fa-solid fa-ruler" style="font-size:14px;"></i> ${m.width || '—'}</span>
-            <span class="consumption"><i class="fa-solid fa-layer-group" style="font-size:14px;"></i> ${a.consumption || '—'}</span>
-            ${a.qty ? `<span class="qty"><i class="fa-solid fa-cubes" style="font-size:14px;"></i> ${a.qty}</span>` : ''}
-          </div>
-        </div>
-        <div class="article-price">
-          <div class="usd">$${fmt(currentUsd(a.rmb))}</div>
-          <div class="rmb">&yen;${fmt(a.rmb)}</div>
-          <div class="price-hist">entry: $${fmt(a.usdEntry)}<br>(${a.entryDate})</div>
-        </div>
-        ${canEdit ? `
-        <div class="article-link-actions">
-          <i class="fa-solid fa-pen" title="Edit this article link" onclick="openEditArticleLink('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>
-          <i class="fa-solid fa-link-slash" title="Remove this article link from this material" onclick="deleteArticleLink('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>
-          ${currentRole === 'master' ? `<i class="fa-solid fa-trash-can" title="Delete this Article from EVERY material (Master only)" onclick="deleteArticleEverywhere('${brandEsc}','${noEsc}')"></i>` : ''}
-        </div>` : ''}
+
+      <div class="summary-cell">
+        <div class="label">Articles</div>
+        <div class="value">${articles.length}</div>
       </div>
-    `;}).join('')}
-    ${currentRole !== 'viewer' ? `
-    <div class="btn-row">
-      <button class="btn" onclick="openEditMaterial('${m.id}')">edit material</button>
-      <button class="btn" onclick="deleteMaterial('${m.id}')">delete material</button>
-    </div>` : ''}
+
+      <div class="summary-cell">
+        <div class="label">Width</div>
+        <div class="value">${materialWidth}</div>
+      </div>
+
+      <div class="summary-cell accent">
+        <div class="label">Price range</div>
+        <div class="value">
+          $${fmt(minP)}&ndash;${fmt(maxP)}
+        </div>
+      </div>
+
+    </div>
+
+    <div class="used-in">
+      Used in ${articles.length} articles
+    </div>
+
+    ${articles.map(a => {
+
+      const brand = a.brand || '';
+      const no = a.no || '';
+      const entryDate = a.entryDate || '';
+
+      const brandArg = escapeAttr(JSON.stringify(brand));
+      const noArg = escapeAttr(JSON.stringify(no));
+      const entryDateArg = escapeAttr(JSON.stringify(entryDate));
+      const materialIdArg = escapeAttr(JSON.stringify(m.id));
+
+      const safeBrand = escapeHtml(brand);
+      const safeNo = escapeHtml(no);
+      const safeWidth = escapeHtml(m.width || '—');
+      const safeConsumption = escapeHtml(a.consumption || '—');
+      const safeQty = escapeHtml(a.qty || '');
+      const safeEntryDate = escapeHtml(entryDate);
+
+      const imageUrl = a.imageUrl || '';
+      const safeImageUrl = escapeAttr(imageUrl);
+
+      const canEdit =
+        currentRole === 'master' ||
+        currentRole === 'editor';
+
+      return `
+        <div class="article-row">
+
+          <div class="article-thumb-wrap">
+
+            <div
+              class="article-thumb"
+              ${
+                imageUrl
+                  ? `onclick="openLightbox(${escapeAttr(JSON.stringify(imageUrl))})"`
+                  : canEdit
+                    ? `onclick="addArticlePhoto(${materialIdArg},${brandArg},${noArg},${entryDateArg})"`
+                    : ''
+              }>
+
+              ${
+                imageUrl
+                  ? `<img
+                       src="${safeImageUrl}"
+                       alt="${escapeAttr(brand)}"
+                       loading="lazy">`
+                  : `<i class="fa-solid ${canEdit ? 'fa-camera' : 'fa-image'}"></i>`
+              }
+
+            </div>
+
+            ${
+              canEdit
+                ? `
+                  <i
+                    class="fa-solid fa-pen thumb-edit-badge"
+                    title="Change photo"
+                    onclick="addArticlePhoto(${materialIdArg},${brandArg},${noArg},${entryDateArg})">
+                  </i>
+                `
+                : ''
+            }
+
+          </div>
+
+          <div class="article-info">
+
+            <div class="top-line">
+
+              <span
+                class="brand clickable"
+                onclick="event.stopPropagation(); openBrandView(${brandArg})">
+
+                ${safeBrand}
+
+              </span>
+
+              <span
+                class="no clickable"
+                onclick="event.stopPropagation(); openArticleView(${brandArg},${noArg})">
+
+                ${safeNo}
+
+              </span>
+
+            </div>
+
+            <div class="spec-line">
+
+              <span class="width">
+                <i
+                  class="fa-solid fa-ruler"
+                  style="font-size:14px;">
+                </i>
+
+                ${safeWidth}
+              </span>
+
+              <span class="consumption">
+                <i
+                  class="fa-solid fa-layer-group"
+                  style="font-size:14px;">
+                </i>
+
+                ${safeConsumption}
+              </span>
+
+              ${
+                safeQty
+                  ? `
+                    <span class="qty">
+                      <i
+                        class="fa-solid fa-cubes"
+                        style="font-size:14px;">
+                      </i>
+
+                      ${safeQty}
+                    </span>
+                  `
+                  : ''
+              }
+
+            </div>
+
+          </div>
+
+          <div class="article-price">
+
+            <div class="usd">
+              $${fmt(currentUsd(a.rmb))}
+            </div>
+
+            <div class="rmb">
+              &yen;${fmt(a.rmb)}
+            </div>
+
+            <div class="price-hist">
+              entry: $${fmt(a.usdEntry)}
+              <br>
+              (${safeEntryDate})
+            </div>
+
+          </div>
+
+          ${
+            canEdit
+              ? `
+                <div class="article-link-actions">
+
+                  <i
+                    class="fa-solid fa-pen"
+                    title="Edit this article link"
+                    onclick="openEditArticleLink(${materialIdArg},${brandArg},${noArg},${entryDateArg})">
+                  </i>
+
+                  <i
+                    class="fa-solid fa-link-slash"
+                    title="Remove this article link from this material"
+                    onclick="deleteArticleLink(${materialIdArg},${brandArg},${noArg},${entryDateArg})">
+                  </i>
+
+                  ${
+                    currentRole === 'master'
+                      ? `
+                        <i
+                          class="fa-solid fa-trash-can"
+                          title="Delete this Article from EVERY material (Master only)"
+                          onclick="deleteArticleEverywhere(${brandArg},${noArg})">
+                        </i>
+                      `
+                      : ''
+                  }
+
+                </div>
+              `
+              : ''
+          }
+
+        </div>
+      `;
+
+    }).join('')}
+
+    ${
+      currentRole !== 'viewer'
+        ? `
+          <div class="btn-row">
+
+            <button
+              class="btn"
+              onclick="openEditMaterial(${materialId})">
+              edit material
+            </button>
+
+            <button
+              class="btn"
+              onclick="deleteMaterial(${materialId})">
+              delete material
+            </button>
+
+          </div>
+        `
+        : ''
+    }
   `;
-  document.getElementById('detailOverlay').classList.add('open');
+
+  document
+    .getElementById('detailOverlay')
+    .classList
+    .add('open');
 }
 window.closeDetail = ()=> document.getElementById('detailOverlay').classList.remove('open');
 document.getElementById('detailOverlay').addEventListener('click', e=>{ if(e.target.id==='detailOverlay') closeDetail(); });
