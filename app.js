@@ -450,10 +450,46 @@ window.removeUserAccess = async (uid, displayName)=>{
 // =========================================================
 
 function renderChips(){
-  const cats = ["All", ...new Set(materials.map(m=>m.type))].sort((a,b)=> a==='All' ? -1 : b==='All' ? 1 : a.localeCompare(b));
-  document.getElementById('chips').innerHTML = cats.map(c =>
-    `<span class="chip ${c===activeCategory?'active':''}" onclick="setCategory('${c}')">${c}</span>`
-  ).join('');
+
+  const cats = [
+    "All",
+    ...new Set(
+      materials
+        .map(m => m.type || '')
+        .filter(Boolean)
+    )
+  ].sort((a,b) =>
+    a === 'All'
+      ? -1
+      : b === 'All'
+        ? 1
+        : a.localeCompare(b)
+  );
+
+  document.getElementById('chips').innerHTML = cats.map(c => {
+
+    const safeCategory =
+      escapeHtml(c);
+
+    const categoryArg =
+      escapeAttr(JSON.stringify(c));
+
+    const active =
+      c === activeCategory
+        ? 'active'
+        : '';
+
+    return `
+      <span
+        class="chip ${active}"
+        onclick="setCategory(${categoryArg})">
+
+        ${safeCategory}
+
+      </span>
+    `;
+
+  }).join('');
 }
 window.setCategory = (c)=>{ activeCategory = c; renderChips(); renderList(); renderStats(); };
 
