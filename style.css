@@ -224,10 +224,12 @@
   }
   .auth-toggle:hover{text-decoration:underline;}
 
+  .user-identity{margin-top:10px;}
+  .user-identity #userNameLabel{font-size:13px; font-weight:600; display:block;}
   .role-badge{
     font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.5px;
     padding:4px 9px; border-radius:6px; background:var(--accent-bg); color:var(--accent);
-    display:inline-flex; align-items:center; gap:5px; margin-top:10px;
+    display:inline-flex; align-items:center; gap:5px; margin-top:6px;
   }
   .rate-indicator{
     font-size:10.5px; color:var(--text-mute); margin-top:12px; display:flex; align-items:center; gap:6px;
@@ -237,6 +239,12 @@
     padding:9px 12px; border:1px solid var(--border); border-radius:8px; margin-top:10px; cursor:pointer;
   }
   .manage-users-link:hover{border-color:var(--accent); color:var(--accent);}
+  .pending-badge{
+    margin-left:auto; background:#C0392B; color:#fff; font-size:10px; font-weight:700;
+    min-width:18px; height:18px; border-radius:9px; align-items:center; justify-content:center; padding:0 5px;
+  }
+  .pending-section-title{font-size:11px; font-weight:600; color:var(--text-mute); text-transform:uppercase; letter-spacing:.4px; margin-bottom:4px;}
+  .pending-row{background:var(--accent-bg); border-color:var(--accent);}
   .user-row{
     display:flex; align-items:center; gap:10px; padding:10px; border:1px solid var(--border);
     border-radius:10px; margin-top:8px;
