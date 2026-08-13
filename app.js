@@ -1,3 +1,24 @@
+// ============================================================
+// SECURITY: HTML escaping helpers
+// ============================================================
+
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
+//new added upper senction
+
 import { auth, db, isFirebaseConfigured } from "./firebase-config.js";
 import { isCloudinaryConfigured, uploadImageToCloudinary } from "./cloudinary-config.js";
 import {
