@@ -42,6 +42,18 @@
   </div>
 </div>
 
+<div id="pendingScreen" class="login-screen" style="display:none;">
+  <div class="login-card" style="text-align:center;">
+    <i class="fa-solid fa-hourglass-half" style="font-size:28px; color:var(--accent); margin-bottom:14px;"></i>
+    <div class="login-brand">Waiting for approval</div>
+    <div class="login-sub" style="margin-top:10px; line-height:1.6;">
+      Your ID has been requested. It will be approved and opened by Admin within 72 hours.
+      You'll be able to sign in normally once approved — no action needed on your end.
+    </div>
+    <button class="btn" id="pendingLogoutBtn" style="width:100%; margin-top:22px;">Sign out</button>
+  </div>
+</div>
+
 <div class="wrap" id="mainApp" style="display:none;">
 
   <header>
@@ -53,7 +65,10 @@
           <button class="theme-btn" id="logoutBtn" aria-label="Sign out"><i class="fa-solid fa-arrow-right-from-bracket"></i></button>
         </div>
       </div>
-      <div class="role-badge" id="roleBadge"><i class="fa-solid fa-pen"></i><span>Editor</span></div>
+      <div class="user-identity">
+        <span id="userNameLabel">—</span>
+        <div class="role-badge" id="roleBadge"><i class="fa-solid fa-pen"></i><span>Editor</span></div>
+      </div>
       <div class="search">
         <i class="fa-solid fa-magnifying-glass"></i>
         <input id="searchInput" placeholder="Search by name, article no, or category">
@@ -71,6 +86,7 @@
       <div class="rate-indicator" id="rateIndicator"><i class="fa-solid fa-arrow-right-arrow-left"></i> 1 RMB = $0.139</div>
       <div class="manage-users-link" id="manageUsersLink" style="display:none;" onclick="openManageUsers()">
         <i class="fa-solid fa-users-gear"></i> Manage users
+        <span id="pendingBadge" class="pending-badge" style="display:none;">0</span>
       </div>
     </div>
   </header>
