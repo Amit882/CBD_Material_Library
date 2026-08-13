@@ -1776,58 +1776,277 @@ window.openEditMaterial = (id)=>{
 
 };
 // ---- Edit one specific Article link (brand / article no / qty / consumption / price) ----
-window.openEditArticleLink = (materialId, brand, no, entryDate)=>{
-  const m = materials.find(x=>x.id===materialId);
+window.openEditArticleLink = (
+  materialId,
+  brand,
+  no,
+  entryDate
+)=>{
+
+  const m =
+    materials.find(x => x.id === materialId);
+
   if(!m) return;
-  const a = m.articles.find(x => x.brand===brand && x.no===no && x.entryDate===entryDate);
+
+
+  const a =
+    m.articles.find(
+      x =>
+        x.brand === brand &&
+        x.no === no &&
+        x.entryDate === entryDate
+    );
+
   if(!a) return;
 
+
+  const materialIdArg =
+    escapeAttr(JSON.stringify(materialId));
+
+  const safeBrand =
+    escapeAttr(brand || '');
+
+  const safeNo =
+    escapeAttr(no || '');
+
+  const safeQty =
+    escapeAttr(a.qty || '');
+
+  const safeConsumption =
+    escapeAttr(a.consumption || '');
+
+  const safeRmb =
+    escapeAttr(a.rmb ?? '');
+
+  const safeUsd =
+    escapeAttr(a.usdEntry ?? '');
+
+
   document.getElementById('detailSheet').innerHTML = `
+
     <div class="sheet-head">
-      <i class="fa-solid fa-arrow-left" onclick="openDetail('${materialId}')"></i>
-      <span class="sheet-eyebrow">Edit article link</span>
+
+      <i
+        class="fa-solid fa-arrow-left"
+        onclick="openDetail(${materialIdArg})">
+      </i>
+
+      <span class="sheet-eyebrow">
+        Edit article link
+      </span>
+
     </div>
+
+
     <div class="field-row">
-      <div class="field"><label>Brand</label><input id="eaBrand" list="brandOptions" value="${brand.replace(/"/g,'&quot;')}"></div>
-      <div class="field"><label>Article No</label><input id="eaArticle" value="${no.replace(/"/g,'&quot;')}"></div>
+
+      <div class="field">
+
+        <label>
+          Brand
+        </label>
+
+        <input
+          id="eaBrand"
+          list="brandOptions"
+          value="${safeBrand}">
+
+      </div>
+
+
+      <div class="field">
+
+        <label>
+          Article No
+        </label>
+
+        <input
+          id="eaArticle"
+          value="${safeNo}">
+
+      </div>
+
     </div>
+
+
     <div class="field-row">
-      <div class="field"><label>Order Qty</label><input id="eaQty" value="${(a.qty||'').replace(/"/g,'&quot;')}"></div>
-      <div class="field"><label>Consumption</label><input id="eaConsumption" value="${(a.consumption||'').replace(/"/g,'&quot;')}"></div>
+
+      <div class="field">
+
+        <label>
+          Order Qty
+        </label>
+
+        <input
+          id="eaQty"
+          value="${safeQty}">
+
+      </div>
+
+
+      <div class="field">
+
+        <label>
+          Consumption
+        </label>
+
+        <input
+          id="eaConsumption"
+          value="${safeConsumption}">
+
+      </div>
+
     </div>
+
+
     <div class="field-row">
-      <div class="field"><label>Price (RMB)</label><input id="eaRmb" type="number" value="${a.rmb}"></div>
-      <div class="field"><label>Entry-time price (USD)</label><input id="eaUsd" type="number" value="${a.usdEntry}"></div>
+
+      <div class="field">
+
+        <label>
+          Price (RMB)
+        </label>
+
+        <input
+          id="eaRmb"
+          type="number"
+          value="${safeRmb}">
+
+      </div>
+
+
+      <div class="field">
+
+        <label>
+          Entry-time price (USD)
+        </label>
+
+        <input
+          id="eaUsd"
+          type="number"
+          value="${safeUsd}">
+
+      </div>
+
     </div>
+
+
     <div class="btn-row">
-      <button class="btn" onclick="openDetail('${materialId}')">Cancel</button>
-      <button class="btn primary" id="saveEditArticleLink">Save changes</button>
+
+      <button
+        class="btn"
+        onclick="openDetail(${materialIdArg})">
+        Cancel
+      </button>
+
+      <button
+        class="btn primary"
+        id="saveEditArticleLink">
+        Save changes
+      </button>
+
     </div>
+
   `;
-  document.getElementById('saveEditArticleLink').onclick = async ()=>{
-    const newBrand = document.getElementById('eaBrand').value.trim();
-    const newNo = document.getElementById('eaArticle').value.trim();
-    const qty = document.getElementById('eaQty').value.trim();
-    const consumption = document.getElementById('eaConsumption').value.trim();
-    const rmb = parseFloat(document.getElementById('eaRmb').value) || 0;
-    const usdEntry = parseFloat(document.getElementById('eaUsd').value) || 0;
-    if(!newBrand || !newNo) return;
 
-    const updatedArticles = m.articles.map(x =>
-      (x.brand===brand && x.no===no && x.entryDate===entryDate)
-        ? { ...x, brand: newBrand, no: newNo, qty, consumption, rmb, usdEntry }
-        : x
-    );
-    try{
-      await updateDoc(doc(db, 'materials', materialId), { articles: updatedArticles });
-      openDetail(materialId);
-    } catch(err){
-      console.error('Could not save article link:', err);
-      alert(`Couldn't save this: ${err.message}`);
-    }
-  };
+
+  document
+    .getElementById('saveEditArticleLink')
+    .onclick = async ()=>{
+
+      const newBrand =
+        document
+          .getElementById('eaBrand')
+          .value
+          .trim();
+
+      const newNo =
+        document
+          .getElementById('eaArticle')
+          .value
+          .trim();
+
+      const qty =
+        document
+          .getElementById('eaQty')
+          .value
+          .trim();
+
+      const consumption =
+        document
+          .getElementById('eaConsumption')
+          .value
+          .trim();
+
+      const rmb =
+        parseFloat(
+          document
+            .getElementById('eaRmb')
+            .value
+        ) || 0;
+
+      const usdEntry =
+        parseFloat(
+          document
+            .getElementById('eaUsd')
+            .value
+        ) || 0;
+
+
+      if(!newBrand || !newNo) return;
+
+
+      const updatedArticles =
+        m.articles.map(x =>
+
+          (
+            x.brand === brand &&
+            x.no === no &&
+            x.entryDate === entryDate
+          )
+
+          ? {
+              ...x,
+              brand: newBrand,
+              no: newNo,
+              qty,
+              consumption,
+              rmb,
+              usdEntry
+            }
+
+          : x
+
+        );
+
+
+      try{
+
+        await updateDoc(
+          doc(db, 'materials', materialId),
+          {
+            articles: updatedArticles
+          }
+        );
+
+        openDetail(materialId);
+
+      }catch(err){
+
+        console.error(
+          'Could not save article link:',
+          err
+        );
+
+        alert(
+          `Couldn't save this: ${err.message}`
+        );
+
+      }
+
+    };
+
 };
-
 // ---- Attach a photo to one specific Article link that has no image yet (e.g. from Excel import) ----
 // Find a photo that's already been attached to this Article (brand + article no)
 // anywhere in the database, so we never have to ask for the same shoe photo twice.
