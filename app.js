@@ -340,11 +340,11 @@ function attachDataListeners(){
     const usersRef = collection(db, 'users');
 
     const usersQuery = isGodMasterUser()
-      ? usersRef
-      : firestoreQuery(
-          usersRef,
-          where(documentId(), '!=', GOD_MASTER_UID)
-        );
+  ? usersRef
+  : firestoreQuery(
+      usersRef,
+      where('isGodMaster', '==', false)
+    );
 
     onSnapshot(
       usersQuery,
