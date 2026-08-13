@@ -413,7 +413,6 @@ function updatePendingBadge(){
   badge.style.display = count > 0 ? 'inline-flex' : 'none';
 }
 
-function renderUsersList(){
   function renderUsersList(){
 
   // ==========================================================
