@@ -2202,7 +2202,12 @@ window.checkMatch = ()=>{
   if(val.length<3){ box.classList.remove('show'); return; }
   const match = materials.find(m=> m.name.toLowerCase().includes(val) || val.includes(m.name.toLowerCase().split(' ')[0]));
   if(match){
-    box.innerHTML = `matches existing: <strong>${match.name}</strong> &middot; use this?`;
+    box.innerHTML = `
+  matches existing:
+  <strong>${escapeHtml(match.name)}</strong>
+  &middot;
+  use this?
+`;
     box.classList.add('show');
   } else {
     box.classList.remove('show');
