@@ -2323,7 +2323,9 @@ async function parseExcelFile(file){
     <div class="sheet-head"><span class="sheet-eyebrow">Reading file...</span></div>
     <div style="text-align:center; padding:30px 0;">
       <i class="fa-solid fa-spinner fa-spin" style="font-size:26px; color:var(--accent);"></i>
-      <div style="font-size:12px; color:var(--text-mute); margin-top:12px;">Opening ${file.name}</div>
+      <div style="font-size:12px; color:var(--text-mute); margin-top:12px;">
+  Opening ${escapeHtml(file.name)}
+</div>
       <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     </div>
   `;
@@ -2346,23 +2348,70 @@ async function parseExcelFile(file){
 window.renderUploadStart = renderUploadStart;
 
 function renderSheetPicker(){
+
   document.getElementById('uploadSheet').innerHTML = `
     <div class="sheet-head">
-      <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
-      <span class="sheet-eyebrow">Which tab is this Article on?</span>
+
+      <i
+        class="fa-solid fa-xmark"
+        onclick="document.getElementById('uploadOverlay').classList.remove('open')">
+      </i>
+
+      <span class="sheet-eyebrow">
+        Which tab is this Article on?
+      </span>
+
     </div>
+
     <div style="font-size:11px; color:var(--text-mute); margin-bottom:12px;">
-      This file has ${currentWorkbook.SheetNames.length} tabs. Each tab is usually one Article — pick the one you want to import.
+
+      This file has
+      ${currentWorkbook.SheetNames.length}
+      tabs.
+
+      Each tab is usually one Article —
+      pick the one you want to import.
+
     </div>
+
     <div id="sheetPickerList"></div>
   `;
-  document.getElementById('sheetPickerList').innerHTML = currentWorkbook.SheetNames.map(name => `
-    <div class="choice-option" onclick="parseSheet('${name.replace(/'/g, "\\'")}')">
-      <div class="choice-icon"><i class="fa-solid fa-table"></i></div>
-      <div class="choice-text"><div class="choice-title">${name}</div></div>
-      <i class="fa-solid fa-chevron-right choice-arrow"></i>
-    </div>
-  `).join('');
+
+
+  document.getElementById('sheetPickerList').innerHTML =
+    currentWorkbook.SheetNames.map(name => {
+
+      const safeName =
+        escapeHtml(name);
+
+      const nameArg =
+        escapeAttr(JSON.stringify(name));
+
+      return `
+
+        <div
+          class="choice-option"
+          onclick="parseSheet(${nameArg})">
+
+          <div class="choice-icon">
+            <i class="fa-solid fa-table"></i>
+          </div>
+
+          <div class="choice-text">
+
+            <div class="choice-title">
+              ${safeName}
+            </div>
+
+          </div>
+
+          <i class="fa-solid fa-chevron-right choice-arrow"></i>
+
+        </div>
+
+      `;
+
+    }).join('');
 }
 window.parseSheet = parseSheet;
 
