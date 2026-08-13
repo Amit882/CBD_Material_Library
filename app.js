@@ -1626,39 +1626,155 @@ function allKnownCategories(){
 }
 
 window.openEditMaterial = (id)=>{
-  const m = materials.find(x=>x.id===id);
-  if(!m) return;
-  document.getElementById('detailSheet').innerHTML = `
-    <div class="sheet-head">
-      <i class="fa-solid fa-arrow-left" onclick="openDetail('${id}')"></i>
-      <span class="sheet-eyebrow">Edit material</span>
-    </div>
-    <div class="field"><label>Material name</label><input id="emName" value="${m.name.replace(/"/g,'&quot;')}"></div>
-    <div class="field-row">
-      <div class="field">
-        <label>Type / category</label>
-        <input id="emType" list="categoryOptions" value="${(m.type||'').replace(/"/g,'&quot;')}" placeholder="Select or type a new category">
-        <datalist id="categoryOptions">
-          ${allKnownCategories().map(c => `<option value="${c}"></option>`).join('')}
-        </datalist>
-      </div>
-      <div class="field"><label>Width</label><input id="emWidth" value="${(m.width||'').replace(/"/g,'&quot;')}"></div>
-    </div>
-    <div class="btn-row">
-      <button class="btn" onclick="openDetail('${id}')">Cancel</button>
-      <button class="btn primary" id="saveEditMaterial">Save changes</button>
-    </div>
-  `;
-  document.getElementById('saveEditMaterial').onclick = async ()=>{
-    const name = document.getElementById('emName').value.trim();
-    const type = document.getElementById('emType').value.trim() || 'Uncategorized';
-    const width = document.getElementById('emWidth').value.trim();
-    if(!name) return;
-    await updateDoc(doc(db, 'materials', id), { name, type, width });
-    openDetail(id);
-  };
-};
 
+  const m = materials.find(x => x.id === id);
+  if(!m) return;
+
+  const materialIdArg =
+    escapeAttr(JSON.stringify(id));
+
+  const safeName =
+    escapeAttr(m.name || '');
+
+  const safeType =
+    escapeAttr(m.type || '');
+
+  const safeWidth =
+    escapeAttr(m.width || '');
+
+  document.getElementById('detailSheet').innerHTML = `
+
+    <div class="sheet-head">
+
+      <i
+        class="fa-solid fa-arrow-left"
+        onclick="openDetail(${materialIdArg})">
+      </i>
+
+      <span class="sheet-eyebrow">
+        Edit material
+      </span>
+
+    </div>
+
+
+    <div class="field">
+
+      <label>
+        Material name
+      </label>
+
+      <input
+        id="emName"
+        value="${safeName}">
+
+    </div>
+
+
+    <div class="field-row">
+
+      <div class="field">
+
+        <label>
+          Type / category
+        </label>
+
+        <input
+          id="emType"
+          list="categoryOptions"
+          value="${safeType}"
+          placeholder="Select or type a new category">
+
+        <datalist id="categoryOptions">
+
+          ${allKnownCategories().map(c => `
+            <option value="${escapeAttr(c)}"></option>
+          `).join('')}
+
+        </datalist>
+
+      </div>
+
+
+      <div class="field">
+
+        <label>
+          Width
+        </label>
+
+        <input
+          id="emWidth"
+          value="${safeWidth}">
+
+      </div>
+
+    </div>
+
+
+    <div class="btn-row">
+
+      <button
+        class="btn"
+        onclick="openDetail(${materialIdArg})">
+        Cancel
+      </button>
+
+      <button
+        class="btn primary"
+        id="saveEditMaterial">
+        Save changes
+      </button>
+
+    </div>
+
+  `;
+
+
+  document
+    .getElementById('saveEditMaterial')
+    .onclick = async ()=>{
+
+      const name =
+        document.getElementById('emName').value.trim();
+
+      const type =
+        document.getElementById('emType').value.trim()
+        || 'Uncategorized';
+
+      const width =
+        document.getElementById('emWidth').value.trim();
+
+      if(!name) return;
+
+      try{
+
+        await updateDoc(
+          doc(db, 'materials', id),
+          {
+            name,
+            type,
+            width
+          }
+        );
+
+        openDetail(id);
+
+      }catch(err){
+
+        console.error(
+          'Could not update material:',
+          err
+        );
+
+        alert(
+          `Couldn't save this: ${err.message}`
+        );
+
+      }
+
+    };
+
+};
 // ---- Edit one specific Article link (brand / article no / qty / consumption / price) ----
 window.openEditArticleLink = (materialId, brand, no, entryDate)=>{
   const m = materials.find(x=>x.id===materialId);
