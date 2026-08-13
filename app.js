@@ -184,12 +184,22 @@ function friendlyAuthError(code){
 // The very first person to ever sign up becomes Master automatically and is auto-approved.
 // Everyone after that starts as a pending Viewer request until a Master approves them.
 async function bootstrapUserDoc(uid, name, email){
-  const usersSnap = await getDocs(collection(db, 'users'));
-  const isFirst = usersSnap.empty;
-  const role = isFirst ? 'master' : 'viewer';
-  const status = isFirst ? 'approved' : 'pending';
-  await setDoc(doc(db, 'users', uid), { name, email, role, status, createdAt: serverTimestamp() });
-  return { role, status };
+
+  await setDoc(
+    doc(db, 'users', uid),
+    {
+      name,
+      email,
+      role: 'viewer',
+      status: 'pending',
+      createdAt: serverTimestamp()
+    }
+  );
+
+  return {
+    role: 'viewer',
+    status: 'pending'
+  };
 }
 
 document.getElementById('authToggle').addEventListener('click', ()=>{
