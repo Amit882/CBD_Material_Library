@@ -861,35 +861,134 @@ window.clearFiltersAndShowList = ()=>{
 };
 
 window.openAllArticles = ()=>{
-  const map = new Map(); // "brand||no" -> { brand, no, qty, materialCount, imageUrl }
+
+  const map = new Map();
+
   materials.forEach(m => m.articles.forEach(a => {
+
     const key = `${a.brand}||${a.no}`;
-    const entry = map.get(key) || { brand: a.brand, no: a.no, qty: a.qty || '', materialCount: 0, imageUrl: '' };
+
+    const entry = map.get(key) || {
+      brand: a.brand || '',
+      no: a.no || '',
+      qty: a.qty || '',
+      materialCount: 0,
+      imageUrl: ''
+    };
+
     entry.materialCount++;
-    if(!entry.qty && a.qty) entry.qty = a.qty;
-    if(!entry.imageUrl && a.imageUrl) entry.imageUrl = a.imageUrl;
+
+    if(!entry.qty && a.qty){
+      entry.qty = a.qty;
+    }
+
+    if(!entry.imageUrl && a.imageUrl){
+      entry.imageUrl = a.imageUrl;
+    }
+
     map.set(key, entry);
+
   }));
-  const rows = [...map.values()].sort((a,b)=> b.materialCount - a.materialCount);
+
+  const rows = [...map.values()]
+    .sort((a,b)=> b.materialCount - a.materialCount);
 
   document.getElementById('detailSheet').innerHTML = `
+
     <div class="sheet-head">
-      <i class="fa-solid fa-xmark" onclick="closeDetail()"></i>
-      <span class="sheet-eyebrow">All articles</span>
+      <i
+        class="fa-solid fa-xmark"
+        onclick="closeDetail()">
+      </i>
+
+      <span class="sheet-eyebrow">
+        All articles
+      </span>
     </div>
-    <div class="used-in">${rows.length} article${rows.length===1?'':'s'}</div>
-    ${rows.map(r => `
-      <div class="drill-row" onclick="openArticleView('${r.brand.replace(/'/g,"\\'")}','${r.no.replace(/'/g,"\\'")}')">
-        <div class="drill-thumb">${r.imageUrl ? `<img src="${r.imageUrl}" alt="${r.no}">` : `<i class="fa-solid fa-image"></i>`}</div>
-        <div class="drill-info">
-          <div class="drill-title">${r.brand} &middot; ${r.no}</div>
-          <div class="drill-sub">${r.qty ? `Qty: ${r.qty} &middot; ` : ''}${r.materialCount} material${r.materialCount===1?'':'s'}</div>
+
+    <div class="used-in">
+      ${rows.length}
+      article${rows.length===1?'':'s'}
+    </div>
+
+    ${rows.map(r => {
+
+      const brandArg =
+        escapeAttr(JSON.stringify(r.brand));
+
+      const noArg =
+        escapeAttr(JSON.stringify(r.no));
+
+      const safeBrand =
+        escapeHtml(r.brand);
+
+      const safeNo =
+        escapeHtml(r.no);
+
+      const safeQty =
+        escapeHtml(r.qty);
+
+      const safeImage =
+        escapeAttr(r.imageUrl || '');
+
+      return `
+
+        <div
+          class="drill-row"
+          onclick="openArticleView(${brandArg},${noArg})">
+
+          <div class="drill-thumb">
+
+            ${
+              r.imageUrl
+                ? `
+                  <img
+                    src="${safeImage}"
+                    alt="${escapeAttr(r.no)}"
+                    loading="lazy">
+                `
+                : `
+                  <i class="fa-solid fa-image"></i>
+                `
+            }
+
+          </div>
+
+          <div class="drill-info">
+
+            <div class="drill-title">
+              ${safeBrand} &middot; ${safeNo}
+            </div>
+
+            <div class="drill-sub">
+
+              ${
+                safeQty
+                  ? `Qty: ${safeQty} &middot; `
+                  : ''
+              }
+
+              ${r.materialCount}
+              material${r.materialCount===1?'':'s'}
+
+            </div>
+
+          </div>
+
+          <i class="fa-solid fa-chevron-right drill-arrow"></i>
+
         </div>
-        <i class="fa-solid fa-chevron-right drill-arrow"></i>
-      </div>
-    `).join('')}
+
+      `;
+
+    }).join('')}
+
   `;
-  document.getElementById('detailOverlay').classList.add('open');
+
+  document
+    .getElementById('detailOverlay')
+    .classList
+    .add('open');
 };
 
 window.openAllBrands = ()=>{
