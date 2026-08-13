@@ -22,19 +22,126 @@ export const isCloudinaryConfigured =
 
 // Uploads a File object to Cloudinary and returns the public image URL.
 export async function uploadImageToCloudinary(file){
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('upload_preset', cloudinaryConfig.uploadPreset);
 
-  const res = await fetch(
-    `https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/image/upload`,
-    { method: 'POST', body: formData }
+  // ----------------------------------------------------------
+  // SECURITY: validate the file before sending it to Cloudinary
+  // ----------------------------------------------------------
+
+  if(!(file instanceof File)){
+    throw new Error('Invalid image file.');
+  }
+
+
+  // Maximum upload size: 5 MB
+  const MAX_SIZE = 5 * 1024 * 1024;
+
+  if(file.size <= 0){
+    throw new Error('The selected image is empty.');
+  }
+
+  if(file.size > MAX_SIZE){
+    throw new Error('Image is too large. Maximum allowed size is 5 MB.');
+  }
+
+
+  // Only allow actual browser-reported image MIME types
+  const allowedTypes = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp'
+  ]);
+
+  if(!allowedTypes.has(file.type)){
+    throw new Error(
+      'Invalid image type. Please upload JPG, PNG, or WebP.'
+    );
+  }
+
+
+  // Also check the filename extension
+  const fileName =
+    String(file.name || '').toLowerCase();
+
+  const allowedExtensions = [
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.webp'
+  ];
+
+  if(
+    !allowedExtensions.some(ext =>
+      fileName.endsWith(ext)
+    )
+  ){
+    throw new Error(
+      'Invalid image extension. Please use JPG, PNG, or WebP.'
+    );
+  }
+
+
+  const formData = new FormData();
+
+  formData.append(
+    'file',
+    file,
+    file.name
   );
 
+  formData.append(
+    'upload_preset',
+    cloudinaryConfig.uploadPreset
+  );
+
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudinaryConfig.cloudName)}/image/upload`,
+    {
+      method: 'POST',
+      body: formData
+    }
+  );
+
+
   if(!res.ok){
-    const errText = await res.text();
-    throw new Error(`Cloudinary upload failed: ${errText}`);
+
+    let message =
+      'Cloudinary upload failed.';
+
+    try{
+
+      const errorData =
+        await res.json();
+
+      if(
+        errorData?.error?.message
+      ){
+        message =
+          errorData.error.message;
+      }
+
+    }catch{
+      // Keep generic message if Cloudinary
+      // doesn't return JSON.
+    }
+
+    throw new Error(message);
   }
-  const data = await res.json();
+
+
+  const data =
+    await res.json();
+
+
+  if(
+    !data.secure_url ||
+    typeof data.secure_url !== 'string'
+  ){
+    throw new Error(
+      'Cloudinary returned an invalid image URL.'
+    );
+  }
+
+
   return data.secure_url;
 }
