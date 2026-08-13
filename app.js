@@ -2449,19 +2449,52 @@ function parseSheet(sheetName){
 }
 
 function showParseError(message){
-  const backBtn = currentWorkbook && currentWorkbook.SheetNames.length > 1
-    ? `<button class="btn" onclick="renderSheetPicker()">Choose a different tab</button>`
-    : `<button class="btn" onclick="renderUploadStart()">Try another file</button>`;
+
+  const backBtn =
+    currentWorkbook &&
+    currentWorkbook.SheetNames.length > 1
+
+      ? `
+        <button
+          class="btn"
+          onclick="renderSheetPicker()">
+          Choose a different tab
+        </button>
+      `
+
+      : `
+        <button
+          class="btn"
+          onclick="renderUploadStart()">
+          Try another file
+        </button>
+      `;
+
+
   document.getElementById('uploadSheet').innerHTML = `
+
     <div class="sheet-head">
-      <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
-      <span class="sheet-eyebrow">Couldn't read this</span>
+
+      <i
+        class="fa-solid fa-xmark"
+        onclick="document.getElementById('uploadOverlay').classList.remove('open')">
+      </i>
+
+      <span class="sheet-eyebrow">
+        Couldn't read this
+      </span>
+
     </div>
-    <div style="font-size:12px; color:var(--text-mute); margin:14px 0;">${message}</div>
+
+    <div
+      style="font-size:12px; color:var(--text-mute); margin:14px 0;">
+      ${escapeHtml(message)}
+    </div>
+
     ${backBtn}
+
   `;
 }
-
 // ---- Sheet reading helpers ----
 
 function cellText(v){ return String(v ?? '').trim(); }
