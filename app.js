@@ -25,7 +25,20 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, getDocs, setDoc, getDoc, serverTimestamp, writeBatch,
+  collection,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  getDocs,
+  setDoc,
+  getDoc,
+  serverTimestamp,
+  writeBatch,
+  query as firestoreQuery,
+  where,
+  documentId
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 let EXCHANGE_RATE = 0.139; // fallback default; overwritten by fetchLiveRate() on load
@@ -36,6 +49,16 @@ let users = [];       // [{ id (uid), name, email, role }]
 let brands = [];      // [{ id, name, logoUrl }] - only holds brands that have a logo set
 let currentUser = null;
 let currentRole = null; // 'master' | 'editor' | 'viewer'
+
+// ============================================================
+// 👑 GOD MASTER
+// ============================================================
+
+const GOD_MASTER_UID = 'qk9a8xDiZVPK9ux6G1GaJ6giysH2';
+
+function isGodMasterUser() {
+  return currentUser?.uid === GOD_MASTER_UID;
+}
 
 let activeCategory = "All";
 let query = "";
