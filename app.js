@@ -306,41 +306,120 @@ function renderUsersList(){
 
   document.getElementById('usersSheet').innerHTML = `
     <div class="sheet-head">
-      <i class="fa-solid fa-xmark" onclick="document.getElementById('usersOverlay').classList.remove('open')"></i>
+      <i class="fa-solid fa-xmark"
+         onclick="document.getElementById('usersOverlay').classList.remove('open')"></i>
       <span class="sheet-eyebrow">Manage users</span>
     </div>
 
     ${pending.length > 0 ? `
-    <div class="pending-section-title">${pending.length} request${pending.length===1?'':'s'} waiting for approval</div>
-    ${pending.map(u=>`
-      <div class="user-row pending-row">
-        <div class="user-avatar">${(u.name||u.email).split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
-        <div class="user-details">
-          <div class="user-name">${u.name || u.email}</div>
-          <div class="user-email">${u.email}</div>
-        </div>
-        <button class="mini-btn yes" onclick="approveUser('${u.id}')">Approve</button>
-        <i class="fa-solid fa-trash user-remove-btn" title="Deny request" onclick="removeUserAccess('${u.id}','${(u.name||u.email).replace(/'/g,"\\'")}')"></i>
-      </div>
-    `).join('')}
-    <div class="pending-section-title" style="margin-top:16px;">${approved.length} people have access</div>
-    ` : `<div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">${approved.length} people have access</div>`}
+    <div class="pending-section-title">
+      ${pending.length} request${pending.length===1?'':'s'} waiting for approval
+    </div>
 
-    ${approved.map(u=>`
-      <div class="user-row">
-        <div class="user-avatar">${(u.name||u.email).split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
-        <div class="user-details">
-          <div class="user-name">${u.name || u.email}</div>
-          <div class="user-email">${u.email}</div>
+    ${pending.map(u => {
+      const displayName = u.name || u.email || '';
+      const uid = escapeAttr(JSON.stringify(u.id));
+      const safeName = escapeHtml(displayName);
+      const safeEmail = escapeHtml(u.email || '');
+
+      const initials = escapeHtml(
+        displayName
+          .split(' ')
+          .map(w => w[0] || '')
+          .join('')
+          .slice(0,2)
+          .toUpperCase()
+      );
+
+      return `
+        <div class="user-row pending-row">
+          <div class="user-avatar">${initials}</div>
+
+          <div class="user-details">
+            <div class="user-name">${safeName}</div>
+            <div class="user-email">${safeEmail}</div>
+          </div>
+
+          <button
+            class="mini-btn yes"
+            onclick="approveUser(${uid})">
+            Approve
+          </button>
+
+          <i
+            class="fa-solid fa-trash user-remove-btn"
+            title="Deny request"
+            onclick="removeUserAccess(${uid}, ${escapeAttr(JSON.stringify(displayName))})">
+          </i>
         </div>
-        <select class="role-select" ${u.id===currentUser.uid ? 'disabled' : ''} onchange="changeUserRole('${u.id}', this.value)">
-          <option value="master" ${u.role==='master'?'selected':''}>Master</option>
-          <option value="editor" ${u.role==='editor'?'selected':''}>Editor</option>
-          <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
-        </select>
-        ${u.id!==currentUser.uid ? `<i class="fa-solid fa-trash user-remove-btn" title="Remove access" onclick="removeUserAccess('${u.id}','${(u.name||u.email).replace(/'/g,"\\'")}')"></i>` : ''}
+      `;
+    }).join('')}
+
+    <div class="pending-section-title" style="margin-top:16px;">
+      ${approved.length} people have access
+    </div>
+
+    ` : `
+      <div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">
+        ${approved.length} people have access
       </div>
-    `).join('')}
+    `}
+
+    ${approved.map(u => {
+      const displayName = u.name || u.email || '';
+      const uid = escapeAttr(JSON.stringify(u.id));
+      const safeName = escapeHtml(displayName);
+      const safeEmail = escapeHtml(u.email || '');
+
+      const initials = escapeHtml(
+        displayName
+          .split(' ')
+          .map(w => w[0] || '')
+          .join('')
+          .slice(0,2)
+          .toUpperCase()
+      );
+
+      const isCurrentUser = u.id === currentUser.uid;
+
+      return `
+        <div class="user-row">
+          <div class="user-avatar">${initials}</div>
+
+          <div class="user-details">
+            <div class="user-name">${safeName}</div>
+            <div class="user-email">${safeEmail}</div>
+          </div>
+
+          <select
+            class="role-select"
+            ${isCurrentUser ? 'disabled' : ''}
+            onchange="changeUserRole(${uid}, this.value)">
+
+            <option value="master" ${u.role==='master'?'selected':''}>
+              Master
+            </option>
+
+            <option value="editor" ${u.role==='editor'?'selected':''}>
+              Editor
+            </option>
+
+            <option value="viewer" ${u.role==='viewer'?'selected':''}>
+              Viewer
+            </option>
+
+          </select>
+
+          ${!isCurrentUser ? `
+            <i
+              class="fa-solid fa-trash user-remove-btn"
+              title="Remove access"
+              onclick="removeUserAccess(${uid}, ${escapeAttr(JSON.stringify(displayName))})">
+            </i>
+          ` : ''}
+        </div>
+      `;
+    }).join('')}
   `;
 }
 
