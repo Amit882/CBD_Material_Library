@@ -109,6 +109,8 @@ function showConfigNoticeIfNeeded(){
 
 let authSubmitting = false;
 let signupInProgress = false;
+let currentStatus = null; // 'approved' | 'pending'
+let currentUserName = '';
 
 document.getElementById('authForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
@@ -123,13 +125,16 @@ document.getElementById('authForm').addEventListener('submit', async (e)=>{
   const submitBtn = document.getElementById('authSubmitBtn');
   errorBox.textContent = '';
   submitBtn.disabled = true;
-  submitBtn.textContent = isSignUp ? 'Creating account...' : 'Signing in...';
+  submitBtn.textContent = isSignUp ? 'Requesting access...' : 'Signing in...';
 
   try{
     if(isSignUp){
       signupInProgress = true;
       const cred = await createUserWithEmailAndPassword(auth, email, password);
-      await bootstrapUserDoc(cred.user.uid, name || email, email);
+      const { status } = await bootstrapUserDoc(cred.user.uid, name || email, email);
+      if(status === 'pending'){
+        alert('Your ID has been requested. It will be approved and opened by Admin within 72 hours.');
+      }
     } else {
       await signInWithEmailAndPassword(auth, email, password);
     }
@@ -155,25 +160,35 @@ function friendlyAuthError(code){
   return map[code] || 'Something went wrong. Please try again.';
 }
 
-// The very first person to ever sign up becomes Master automatically.
-// Everyone after that starts as Viewer until a Master promotes them.
+// The very first person to ever sign up becomes Master automatically and is auto-approved.
+// Everyone after that starts as a pending Viewer request until a Master approves them.
 async function bootstrapUserDoc(uid, name, email){
   const usersSnap = await getDocs(collection(db, 'users'));
-  const role = usersSnap.empty ? 'master' : 'viewer';
-  await setDoc(doc(db, 'users', uid), { name, email, role, createdAt: serverTimestamp() });
+  const isFirst = usersSnap.empty;
+  const role = isFirst ? 'master' : 'viewer';
+  const status = isFirst ? 'approved' : 'pending';
+  await setDoc(doc(db, 'users', uid), { name, email, role, status, createdAt: serverTimestamp() });
+  return { role, status };
 }
 
 document.getElementById('authToggle').addEventListener('click', ()=>{
   const form = document.getElementById('authForm');
   const isSignUp = form.dataset.mode === 'signup';
   form.dataset.mode = isSignUp ? 'signin' : 'signup';
-  document.getElementById('authTitle').textContent = isSignUp ? 'Sign in to your account' : 'Create the first account';
-  document.getElementById('authSubmitBtn').textContent = isSignUp ? 'Sign in' : 'Create account';
-  document.getElementById('authToggle').textContent = isSignUp ? "Don't have an account? Create one" : 'Already have an account? Sign in';
+  document.getElementById('authTitle').textContent = isSignUp ? 'Sign in to your account' : 'Request access';
+  document.getElementById('authSubmitBtn').textContent = isSignUp ? 'Sign in' : 'Request access';
+  document.getElementById('authToggle').textContent = isSignUp ? "Don't have an account? Request access" : 'Already have an account? Sign in';
   document.getElementById('authNameField').style.display = isSignUp ? 'none' : 'block';
 });
 
 document.getElementById('logoutBtn').addEventListener('click', ()=> signOut(auth));
+document.getElementById('pendingLogoutBtn').addEventListener('click', ()=> signOut(auth));
+
+function showScreen(name){
+  document.getElementById('loginScreen').style.display = name==='login' ? 'flex' : 'none';
+  document.getElementById('pendingScreen').style.display = name==='pending' ? 'flex' : 'none';
+  document.getElementById('mainApp').style.display = name==='app' ? 'block' : 'none';
+}
 
 onAuthStateChanged(auth, async (user)=>{
   if(user){
@@ -189,23 +204,31 @@ onAuthStateChanged(auth, async (user)=>{
     // If a signup IS in progress, the submit handler above is already writing this
     // doc — onSnapshot below will simply pick it up as soon as that write lands.
     onSnapshot(userDocRef, (snap)=>{
-      currentRole = snap.data()?.role || 'viewer';
+      const data = snap.data() || {};
+      currentRole = data.role || 'viewer';
+      currentStatus = data.status || 'pending';
+      currentUserName = data.name || user.email;
+
+      if(currentStatus !== 'approved'){
+        showScreen('pending');
+        return;
+      }
+      showScreen('app');
       applyRolePermissions();
+      attachDataListeners();
     });
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('mainApp').style.display = 'block';
-    attachDataListeners();
   } else {
     currentUser = null;
     currentRole = null;
-    document.getElementById('loginScreen').style.display = 'flex';
-    document.getElementById('mainApp').style.display = 'none';
+    currentStatus = null;
+    showScreen('login');
   }
 });
 
 function applyRolePermissions(){
   const meta = roleMeta[currentRole] || roleMeta.viewer;
   document.getElementById('roleBadge').innerHTML = `<i class="fa-solid ${meta.icon}"></i><span>${meta.label}</span>`;
+  document.getElementById('userNameLabel').textContent = currentUserName;
   const canEdit = currentRole === 'master' || currentRole === 'editor';
   document.getElementById('addBtn').style.display = canEdit ? 'flex' : 'none';
   document.getElementById('manageUsersLink').style.display = currentRole === 'master' ? 'flex' : 'none';
@@ -229,6 +252,7 @@ function attachDataListeners(){
   onSnapshot(collection(db, 'users'), (snap)=>{
     users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if(document.getElementById('usersOverlay').classList.contains('open')) renderUsersList();
+    updatePendingBadge();
   }, (err)=> console.error('users listener error:', err));
 
   onSnapshot(collection(db, 'brands'), (snap)=>{
@@ -247,14 +271,41 @@ function openManageUsers(){
 window.openManageUsers = openManageUsers;
 document.getElementById('usersOverlay').addEventListener('click', e=>{ if(e.target.id==='usersOverlay') e.currentTarget.classList.remove('open'); });
 
+function updatePendingBadge(){
+  const badge = document.getElementById('pendingBadge');
+  if(!badge) return;
+  const count = users.filter(u => u.status !== 'approved').length;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? 'inline-flex' : 'none';
+}
+
 function renderUsersList(){
+  const pending = users.filter(u => u.status !== 'approved');
+  const approved = users.filter(u => u.status === 'approved');
+
   document.getElementById('usersSheet').innerHTML = `
     <div class="sheet-head">
       <i class="fa-solid fa-xmark" onclick="document.getElementById('usersOverlay').classList.remove('open')"></i>
       <span class="sheet-eyebrow">Manage users</span>
     </div>
-    <div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">${users.length} people have access</div>
-    ${users.map(u=>`
+
+    ${pending.length > 0 ? `
+    <div class="pending-section-title">${pending.length} request${pending.length===1?'':'s'} waiting for approval</div>
+    ${pending.map(u=>`
+      <div class="user-row pending-row">
+        <div class="user-avatar">${(u.name||u.email).split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
+        <div class="user-details">
+          <div class="user-name">${u.name || u.email}</div>
+          <div class="user-email">${u.email}</div>
+        </div>
+        <button class="mini-btn yes" onclick="approveUser('${u.id}')">Approve</button>
+        <i class="fa-solid fa-trash user-remove-btn" title="Deny request" onclick="removeUserAccess('${u.id}','${(u.name||u.email).replace(/'/g,"\\'")}')"></i>
+      </div>
+    `).join('')}
+    <div class="pending-section-title" style="margin-top:16px;">${approved.length} people have access</div>
+    ` : `<div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">${approved.length} people have access</div>`}
+
+    ${approved.map(u=>`
       <div class="user-row">
         <div class="user-avatar">${(u.name||u.email).split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
         <div class="user-details">
@@ -272,6 +323,10 @@ function renderUsersList(){
   `;
 }
 
+window.approveUser = async (uid)=>{
+  await updateDoc(doc(db, 'users', uid), { status: 'approved' });
+};
+
 window.changeUserRole = async (uid, newRole)=>{
   await updateDoc(doc(db, 'users', uid), { role: newRole });
 };
@@ -281,7 +336,7 @@ window.changeUserRole = async (uid, newRole)=>{
 // It does NOT delete their actual Firebase login — fully deleting a login account
 // requires Admin SDK / a Cloud Function, which isn't possible from the browser alone.
 window.removeUserAccess = async (uid, displayName)=>{
-  if(!confirm(`Remove ${displayName}'s access? They'll lose Editor/Viewer permissions immediately. (Their login itself isn't deleted — they'd start over as a new Viewer if they sign in again.)`)) return;
+  if(!confirm(`Remove ${displayName}'s access? They'll lose Editor/Viewer permissions immediately. (Their login itself isn't deleted — they'd start over as a new pending request if they sign in again.)`)) return;
   try{
     await deleteDoc(doc(db, 'users', uid));
   } catch(err){
