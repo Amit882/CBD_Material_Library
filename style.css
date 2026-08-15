@@ -161,7 +161,7 @@
     display:flex; align-items:center; justify-content:center; color:var(--text-mute); font-size:22px;
     overflow:hidden; cursor:pointer;
   }
-  .article-thumb img{width:100%; height:100%; object-fit:cover;}
+  .article-thumb img{width:100%; height:100%; object-fit:contain;}
   .thumb-edit-badge{
     position:absolute; bottom:-6px; right:-6px; width:22px; height:22px; border-radius:50%;
     background:var(--accent); color:var(--surface); display:flex; align-items:center; justify-content:center;
@@ -279,7 +279,7 @@
     width:46px; height:46px; border-radius:10px; background:var(--accent-bg); color:var(--text-mute);
     display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; overflow:hidden;
   }
-  .drill-thumb img{width:100%; height:100%; object-fit:cover;}
+  .drill-thumb img{width:100%; height:100%; object-fit:contain;}
   .drill-info{flex:1; min-width:0;}
   .drill-title{font-size:13.5px; font-weight:600;}
   .drill-sub{font-size:11px; color:var(--text-mute); margin-top:3px;}
