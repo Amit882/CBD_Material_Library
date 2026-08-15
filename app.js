@@ -21,12 +21,14 @@ let query = "";
 let pendingPhotoFile = null; // file selected in the add-entry form, uploaded on save
 
 const iconFor = t => ({Fabric:"fa-solid fa-swatchbook", Binding:"fa-solid fa-ribbon", Trims:"fa-regular fa-square", Lining:"fa-solid fa-layer-group", Reinforcement:"fa-solid fa-shield-halved"}[t] || "fa-solid fa-box");
-const currentUsd = rmb => (rmb * EXCHANGE_RATE);
+const currentUsd = rmb => {
+  const num = Number(rmb);
+  return Number.isFinite(num) && EXCHANGE_RATE > 0 ? num * EXCHANGE_RATE : 0;
+};
 const fmt = n => {
   const num = Number(n);
   return Number.isFinite(num) ? num.toFixed(3) : '—';
 };
-
 // =========================================================
 // Live RMB -> USD exchange rate (Frankfurter API, free, no key needed)
 // Cached in localStorage for 30 minutes so it stays fresh without re-fetching on every render.
@@ -36,18 +38,17 @@ const RATE_CACHE_KEY = 'cbd_rmb_usd_rate';
 const RATE_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
 async function fetchRateFromPrimaryApi(){
-  const res = await fetch('https://api.frankfurter.app/latest?from=CNY&to=USD');
+  const res = await fetch('https://open.er-api.com/v6/latest/CNY');
   if(!res.ok) throw new Error('primary rate API failed');
   const data = await res.json();
   return data.rates.USD;
 }
 async function fetchRateFromFallbackApi(){
-  const res = await fetch('https://open.er-api.com/v6/latest/CNY');
+  const res = await fetch('https://api.frankfurter.app/latest?from=CNY&to=USD');
   if(!res.ok) throw new Error('fallback rate API failed');
   const data = await res.json();
   return data.rates.USD;
 }
-
 async function fetchLiveRate(force = false){
   if(!force){
   const cached = JSON.parse(localStorage.getItem(RATE_CACHE_KEY) || 'null');
@@ -428,7 +429,7 @@ function renderList(){
   }
   list.innerHTML = filtered.map(m=>{
   const latest = sortedArticles(m)[0];
-  const hasLatest = latest && typeof latest.rmb !== 'undefined';
+  const hasPrice = latest && Number.isFinite(Number(latest.rmb));
   return `<div class="card" onclick="openDetail('${m.id}')">
     <div class="cat-icon"><i class="${iconFor(m.type)}"></i></div>
     <div class="card-info">
@@ -436,8 +437,8 @@ function renderList(){
       <div class="meta">${m.type} &middot; used in ${m.articles.length} articles</div>
     </div>
     <div class="card-price">
-      <div class="usd">${hasLatest ? '$' + fmt(currentUsd(latest.rmb)) : '—'}</div>
-      <div class="rmb">${hasLatest ? '&yen;' + fmt(latest.rmb) : '—'}</div>
+      <div class="usd">${hasPrice ? '$' + fmt(currentUsd(latest.rmb)) : '—'}</div>
+      <div class="rmb">${hasPrice ? '&yen;' + fmt(latest.rmb) : '—'}</div>
     </div>
   </div>`;
 }).join('');
@@ -453,9 +454,8 @@ const prices = articles
   .map(a => Number(a.rmb))
   .filter(p => Number.isFinite(p) && p > 0)
   .map(rmb => currentUsd(rmb));
-
-const minP = prices.length ? Math.min(...prices) : 0;
-const maxP = prices.length ? Math.max(...prices) : 0;
+const minP = prices.length ? Math.min(...prices) : null;
+const maxP = prices.length ? Math.max(...prices) : null;
   const sheet = document.getElementById('detailSheet');
   sheet.innerHTML = `
     <div class="sheet-head">
@@ -472,7 +472,7 @@ const maxP = prices.length ? Math.max(...prices) : 0;
     <div class="summary-strip">
       <div class="summary-cell"><div class="label">Articles</div><div class="value">${articles.length}</div></div>
       <div class="summary-cell"><div class="label">Width</div><div class="value">${m.width || '—'}</div></div>
-      <div class="summary-cell accent"><div class="label">Price range</div><div class="value">$${fmt(minP)}&ndash;${fmt(maxP)}</div></div>
+      <div class="summary-cell accent"><div class="label">Price range</div><div class="value">${minP != null && maxP != null ? '$' + fmt(minP) + '&ndash;' + fmt(maxP) : '—'}</div></div>
     </div>
     <div class="used-in">Used in ${articles.length} articles</div>
     ${articles.map(a=>{
@@ -501,7 +501,7 @@ const maxP = prices.length ? Math.max(...prices) : 0;
         <div class="article-price">
           <div class="usd">${a.rmb != null ? '$' + fmt(currentUsd(a.rmb)) : '—'}</div>
 <div class="rmb">${a.rmb != null ? '&yen;' + fmt(a.rmb) : '—'}</div>
-         <div class="price-hist">entry: ${a.usdEntry != null ? '$' + fmt(a.usdEntry) : '—'}<br>(${a.entryDate || '—'})</div>
+<div class="price-hist">entry: ${a.usdEntry != null ? '$' + fmt(a.usdEntry) : '—'}<br>(${a.entryDate || '—'})</div>
         </div>
         ${canEdit ? `
         <div class="article-link-actions">
