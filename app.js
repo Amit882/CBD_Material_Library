@@ -487,7 +487,7 @@ function sortedArticles(m){
 // which are always kept at the very end regardless of what new types get added.
 const CATEGORY_ORDER = [
   ['vamp', 'mesh', 'fabric', 'leather', 'suede'],
-  ['lining', 'tc', 'insock', 'reinforcemant'],
+  ['lining', 'tc', 'insock', 'reinforcement'],
   ['counter', 'nylon tape', 'toe puff'],
   ['glasswool', 'glass wool', 'buckle'],
   ['thread'],
@@ -780,6 +780,7 @@ window.openArticleView = (brand, no)=>{
     if(!imageUrl && a.imageUrl) imageUrl = a.imageUrl;
     rowsRaw.push({ material: m, article: a });
   }));
+  rowsRaw.sort((x,y) => categoryTier(x.material.type) - categoryTier(y.material.type));
   const brandEsc = brand.replace(/'/g,"\\'");
 
   document.getElementById('detailSheet').innerHTML = `
