@@ -33,48 +33,130 @@ const RATE_CACHE_KEY = 'cbd_rmb_usd_rate';
 const RATE_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 
 async function fetchRateFromPrimaryApi(){
-  const res = await fetch('https://api.frankfurter.app/latest?from=CNY&to=USD');
-  if(!res.ok) throw new Error('primary rate API failed');
+  const res = await fetch(
+    'https://api.frankfurter.dev/v2/rate/CNY/USD'
+  );
+
+  if(!res.ok){
+    throw new Error('Primary exchange-rate API failed');
+  }
+
   const data = await res.json();
-  return data.rates.USD;
+
+  if(typeof data.rate !== 'number' || !Number.isFinite(data.rate)){
+    throw new Error('Invalid CNY/USD rate received');
+  }
+
+  return data.rate;
 }
+
+
 async function fetchRateFromFallbackApi(){
-  const res = await fetch('https://open.er-api.com/v6/latest/CNY');
-  if(!res.ok) throw new Error('fallback rate API failed');
+  const res = await fetch(
+    'https://api.frankfurter.dev/v1/latest?base=CNY&symbols=USD'
+  );
+
+  if(!res.ok){
+    throw new Error('Fallback exchange-rate API failed');
+  }
+
   const data = await res.json();
-  return data.rates.USD;
+
+  const rate = Number(data?.rates?.USD);
+
+  if(!Number.isFinite(rate) || rate <= 0){
+    throw new Error('Invalid fallback CNY/USD rate received');
+  }
+
+  return rate;
 }
 
 async function fetchLiveRate(force = false){
+
   if(!force){
-  const cached = JSON.parse(localStorage.getItem(RATE_CACHE_KEY) || 'null');
 
-  if(cached && (Date.now() - cached.fetchedAt) < RATE_CACHE_MS){
-    EXCHANGE_RATE = cached.rate;
-    updateRateIndicator(cached.fetchedAt);
+    const cached = JSON.parse(
+      localStorage.getItem(RATE_CACHE_KEY) || 'null'
+    );
 
-    // Re-render everything using the current cached exchange rate
+    if(
+      cached &&
+      Number.isFinite(Number(cached.rate)) &&
+      (Date.now() - cached.fetchedAt) < RATE_CACHE_MS
+    ){
+
+      EXCHANGE_RATE = Number(cached.rate);
+
+      updateRateIndicator(cached.fetchedAt);
+
+      // Re-render everything using the current cached exchange rate
+      syncAll();
+
+      return;
+    }
+  }
+
+  updateRateIndicator(null, true);
+
+  try{
+
+    let rate;
+
+    try{
+      // Primary API
+      rate = await fetchRateFromPrimaryApi();
+
+    }catch(primaryError){
+
+      console.warn(
+        'Primary exchange-rate API failed. Trying fallback...',
+        primaryError
+      );
+
+      // Fallback API
+      rate = await fetchRateFromFallbackApi();
+    }
+
+
+    if(!Number.isFinite(Number(rate)) || Number(rate) <= 0){
+      throw new Error('Invalid exchange rate');
+    }
+
+
+    EXCHANGE_RATE = Number(rate);
+
+
+    localStorage.setItem(
+      RATE_CACHE_KEY,
+      JSON.stringify({
+        rate: EXCHANGE_RATE,
+        fetchedAt: Date.now()
+      })
+    );
+
+
+    updateRateIndicator(Date.now());
+
+
+    // IMPORTANT:
+    // Re-render all materials/articles using the new exchange rate
     syncAll();
 
-    return;
-  }
-}
-  updateRateIndicator(null, true); // show a "refreshing..." state while we fetch
-  try{
-    let rate;
-    try{ rate = await fetchRateFromPrimaryApi(); }
-    catch{ rate = await fetchRateFromFallbackApi(); } // try a second free source before giving up
-    EXCHANGE_RATE = rate;
-    localStorage.setItem(RATE_CACHE_KEY, JSON.stringify({ rate: EXCHANGE_RATE, fetchedAt: Date.now() }));
-    updateRateIndicator(Date.now());
-    syncAll(); // re-render prices with the fresh rate
-  } catch(err){
-    console.warn('Could not fetch a live RMB->USD rate from either source, using the last known/default rate.', err);
-    updateRateIndicator(null);
-  }
-}
-window.fetchLiveRate = fetchLiveRate;
 
+  }catch(err){
+
+    console.warn(
+      'Could not fetch live CNY/USD exchange rate. Using last known/default rate.',
+      err
+    );
+
+    updateRateIndicator(null);
+
+  }
+}
+
+
+window.fetchLiveRate = fetchLiveRate;
 function updateRateIndicator(fetchedAt, loading = false){
   const el = document.getElementById('rateIndicator');
   if(!el) return;
