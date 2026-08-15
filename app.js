@@ -47,13 +47,21 @@ async function fetchRateFromFallbackApi(){
 
 async function fetchLiveRate(force = false){
   if(!force){
-    const cached = JSON.parse(localStorage.getItem(RATE_CACHE_KEY) || 'null');
-    if(cached && (Date.now() - cached.fetchedAt) < RATE_CACHE_MS){
-      EXCHANGE_RATE = cached.rate;
-      updateRateIndicator(cached.fetchedAt);
-      return;
-    }
+  const cached = JSON.parse(localStorage.getItem(RATE_CACHE_KEY) || 'null');
+
+  if(cached && (Date.now() - cached.fetchedAt) < RATE_CACHE_MS){
+    EXCHANGE_RATE = cached.rate;
+
+    updateRateIndicator(cached.fetchedAt);
+
+    // IMPORTANT:
+    // Recalculate and redraw ALL prices + price ranges
+    // using the cached exchange rate.
+    syncAll();
+
+    return;
   }
+}
   updateRateIndicator(null, true); // show a "refreshing..." state while we fetch
   try{
     let rate;
@@ -439,9 +447,15 @@ function openDetail(id){
   activeMaterialDetailId = id;
   const m = materials.find(x=>x.id===id);
   if(!m) return;
-  const articles = sortedArticles(m);
-  const prices = articles.map(a=>currentUsd(a.rmb));
-  const minP = Math.min(...prices), maxP = Math.max(...prices);
+ const articles = sortedArticles(m);
+
+const prices = articles
+  .map(a => Number(a.rmb))
+  .filter(p => Number.isFinite(p) && p > 0)
+  .map(rmb => currentUsd(rmb));
+
+const minP = prices.length ? Math.min(...prices) : 0;
+const maxP = prices.length ? Math.max(...prices) : 0;
   const sheet = document.getElementById('detailSheet');
   sheet.innerHTML = `
     <div class="sheet-head">
