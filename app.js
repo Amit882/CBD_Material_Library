@@ -48,17 +48,9 @@ async function fetchRateFromFallbackApi(){
 async function fetchLiveRate(force = false){
   if(!force){
   const cached = JSON.parse(localStorage.getItem(RATE_CACHE_KEY) || 'null');
-
   if(cached && (Date.now() - cached.fetchedAt) < RATE_CACHE_MS){
     EXCHANGE_RATE = cached.rate;
-
     updateRateIndicator(cached.fetchedAt);
-
-    // IMPORTANT:
-    // Recalculate and redraw ALL prices + price ranges
-    // using the cached exchange rate.
-    syncAll();
-
     return;
   }
 }
