@@ -481,16 +481,29 @@ function sortedArticles(m){
   return [...m.articles].sort((a,b)=> (b.entryDate||'').localeCompare(a.entryDate||''));
 }
 
-// Rough production-stage ordering: upper/lining-type components first (the bulk of
-// named materials), then Thread, then Lasting, then Packing, and Chemical always last —
-// since chemicals are used across nearly every article, their usage-count isn't meaningful.
+// Production-stage ordering: each group below is a tier, checked top to bottom.
+// A material's "type" text is matched against the keywords in the first group it
+// hits. Anything that matches none of these falls just before Packing/Chemical,
+// which are always kept at the very end regardless of what new types get added.
+const CATEGORY_ORDER = [
+  ['mesh', 'fabric', 'leather', 'suede'],
+  ['lining', 'tc', 'insock'],
+  ['counter', 'nylon tape', 'toe puff'],
+  ['glasswool', 'glass wool', 'buckle'],
+  ['thread'],
+  ['nail', 'heatseal', 'heat seal'],
+  ['tongue label', 'size label', 'bottom filler'],
+  ['eva', 'foam'],
+  ['insole board', 'shank board'],
+  ['outsole', 'insole'],
+];
 function categoryTier(type){
   const t = (type||'').toLowerCase();
-  if(t.includes('chemical')) return 5;
-  if(t.includes('thread')) return 4;
-  if(t.includes('lasting')) return 3;
-  if(t.includes('pack')) return 2;
-  return 1; // upper, lining, and every other named component
+  for(let i = 0; i < CATEGORY_ORDER.length; i++){
+    if(CATEGORY_ORDER[i].some(kw => t.includes(kw))) return i;
+  }
+  if(t.includes('pack') || t.includes('chemical')) return CATEGORY_ORDER.length + 1; // always last
+  return CATEGORY_ORDER.length; // unrecognized types: just before packing/chemical
 }
 function renderList(){
   const filtered = getFilteredMaterials();
