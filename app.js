@@ -486,8 +486,8 @@ function sortedArticles(m){
 // hits. Anything that matches none of these falls just before Packing/Chemical,
 // which are always kept at the very end regardless of what new types get added.
 const CATEGORY_ORDER = [
-  ['mesh', 'fabric', 'leather', 'suede'],
-  ['lining', 'tc', 'insock'],
+  ['vamp', 'mesh', 'fabric', 'leather', 'suede'],
+  ['lining', 'tc', 'insock', 'reinforcemant'],
   ['counter', 'nylon tape', 'toe puff'],
   ['glasswool', 'glass wool', 'buckle'],
   ['thread'],
