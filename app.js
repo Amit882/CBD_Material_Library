@@ -438,6 +438,7 @@ function renderList(){
     </div>`;
   }).join('');
 }
+}
 window.openDetail = openDetail;
 
 function openDetail(id){
