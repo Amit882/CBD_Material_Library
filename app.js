@@ -1,44 +1,10 @@
-// ============================================================
-// SECURITY: HTML escaping helpers
-// ============================================================
-
-function escapeHtml(value) {
-  if (value === null || value === undefined) return '';
-
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function escapeAttr(value) {
-  return escapeHtml(value);
-}
-
-//new added upper senction
-
 import { auth, db, isFirebaseConfigured } from "./firebase-config.js";
 import { isCloudinaryConfigured, uploadImageToCloudinary } from "./cloudinary-config.js";
 import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  collection,
-  doc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  onSnapshot,
-  getDocs,
-  setDoc,
-  getDoc,
-  serverTimestamp,
-  writeBatch,
-  query as firestoreQuery,
-  where,
-  documentId
+  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, getDocs, setDoc, getDoc, serverTimestamp, writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 let EXCHANGE_RATE = 0.139; // fallback default; overwritten by fetchLiveRate() on load
@@ -49,16 +15,6 @@ let users = [];       // [{ id (uid), name, email, role }]
 let brands = [];      // [{ id, name, logoUrl }] - only holds brands that have a logo set
 let currentUser = null;
 let currentRole = null; // 'master' | 'editor' | 'viewer'
-
-// ============================================================
-// 👑 GOD MASTER
-// ============================================================
-
-const GOD_MASTER_UID = 'qk9a8xDiZVPK9ux6G1GaJ6giysH2';
-
-function isGodMasterUser() {
-  return currentUser?.uid === GOD_MASTER_UID;
-}
 
 let activeCategory = "All";
 let query = "";
@@ -130,7 +86,8 @@ function timeAgo(ts){
 }
 
 const roleMeta = {
-  master: { label:"Master", icon:"fa-crown" },
+  godmaster: { label:"God Master", icon:"fa-crown" },
+  master: { label:"Master", icon:"fa-user-shield" },
   editor: { label:"Editor", icon:"fa-pen" },
   viewer: { label:"Viewer", icon:"fa-eye" },
 };
@@ -207,23 +164,12 @@ function friendlyAuthError(code){
 // The very first person to ever sign up becomes Master automatically and is auto-approved.
 // Everyone after that starts as a pending Viewer request until a Master approves them.
 async function bootstrapUserDoc(uid, name, email){
-
-  await setDoc(
-    doc(db, 'users', uid),
-    {
-      name,
-      email,
-      role: 'viewer',
-      status: 'pending',
-      isGodMaster: false,
-      createdAt: serverTimestamp()
-    }
-  );
-
-  return {
-    role: 'viewer',
-    status: 'pending'
-  };
+  const usersSnap = await getDocs(collection(db, 'users'));
+  const isFirst = usersSnap.empty;
+  const role = isFirst ? 'godmaster' : 'viewer';
+  const status = isFirst ? 'approved' : 'pending';
+  await setDoc(doc(db, 'users', uid), { name, email, role, status, createdAt: serverTimestamp() });
+  return { role, status };
 }
 
 document.getElementById('authToggle').addEventListener('click', ()=>{
@@ -284,9 +230,9 @@ function applyRolePermissions(){
   const meta = roleMeta[currentRole] || roleMeta.viewer;
   document.getElementById('roleBadge').innerHTML = `<i class="fa-solid ${meta.icon}"></i><span>${meta.label}</span>`;
   document.getElementById('userNameLabel').textContent = currentUserName;
-  const canEdit = currentRole === 'master' || currentRole === 'editor';
+  const canEdit = currentRole === 'godmaster' || currentRole === 'master' || currentRole === 'editor';
   document.getElementById('addBtn').style.display = canEdit ? 'flex' : 'none';
-  document.getElementById('manageUsersLink').style.display = currentRole === 'master' ? 'flex' : 'none';
+  document.getElementById('manageUsersLink').style.display = (currentRole === 'godmaster' || currentRole === 'master') ? 'flex' : 'none';
   renderList(); // re-render so edit/merge buttons in open detail views respect the role too
 }
 
@@ -296,103 +242,23 @@ function applyRolePermissions(){
 
 let listenersAttached = false;
 function attachDataListeners(){
-  if(listenersAttached) return;
+  if(listenersAttached) return; // avoid double-subscribing across repeated sign-ins
   listenersAttached = true;
 
-  // ==========================================================
-  // 📦 MATERIALS
-  // ==========================================================
+  onSnapshot(collection(db, 'materials'), (snap)=>{
+    materials = snap.docs.map(d => ({ id: d.id, ...d.data(), articles: d.data().articles || [] }));
+    syncAll();
+  }, (err)=> console.error('materials listener error:', err));
 
-  onSnapshot(
-    collection(db, 'materials'),
-    (snap)=>{
-      materials = snap.docs.map(d => ({
-        id: d.id,
-        ...d.data(),
-        articles: d.data().articles || []
-      }));
+  onSnapshot(collection(db, 'users'), (snap)=>{
+    users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if(document.getElementById('usersOverlay').classList.contains('open')) renderUsersList();
+    updatePendingBadge();
+  }, (err)=> console.error('users listener error:', err));
 
-      syncAll();
-    },
-    (err)=>{
-      console.error('materials listener error:', err);
-    }
-  );
-
-
-  // ==========================================================
-  // 👥 USERS
-  // ==========================================================
-  //
-  // Only Masters need the user-management listener.
-  //
-  // GOD MASTER:
-  //   Can see ALL users.
-  //
-  // NORMAL MASTER:
-  //   Can see everyone EXCEPT GOD MASTER.
-  //
-  // EDITOR / VIEWER:
-  //   No users listener at all.
-  //
-
-  if(currentRole === 'master') {
-
-    const usersRef = collection(db, 'users');
-
-    const usersQuery = isGodMasterUser()
-  ? usersRef
-  : firestoreQuery(
-      usersRef,
-      where('isGodMaster', '==', false)
-    );
-
-    onSnapshot(
-      usersQuery,
-      (snap)=>{
-        users = snap.docs.map(d => ({
-          id: d.id,
-          ...d.data()
-        }));
-
-        if(
-          document.getElementById('usersOverlay')
-            .classList.contains('open')
-        ){
-          renderUsersList();
-        }
-
-        updatePendingBadge();
-      },
-      (err)=>{
-        console.error('users listener error:', err);
-      }
-    );
-
-  } else {
-
-    // Non-masters should never keep a users list in memory.
-    users = [];
-
-  }
-
-
-  // ==========================================================
-  // 🏷️ BRANDS
-  // ==========================================================
-
-  onSnapshot(
-    collection(db, 'brands'),
-    (snap)=>{
-      brands = snap.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      }));
-    },
-    (err)=>{
-      console.error('brands listener error:', err);
-    }
-  );
+  onSnapshot(collection(db, 'brands'), (snap)=>{
+    brands = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  }, (err)=> console.error('brands listener error:', err));
 }
 
 // =========================================================
@@ -415,125 +281,54 @@ function updatePendingBadge(){
 }
 
 function renderUsersList(){
-  const pending = users.filter(u => u.status !== 'approved');
-  const approved = users.filter(u => u.status === 'approved');
+  const isGodMaster = currentRole === 'godmaster';
+  // Regular Masters never see the God Master account at all - it's invisible to them.
+  const visibleUsers = isGodMaster ? users : users.filter(u => u.role !== 'godmaster');
+  const pending = visibleUsers.filter(u => u.status !== 'approved');
+  const approved = visibleUsers.filter(u => u.status === 'approved');
+  const roleOptions = isGodMaster
+    ? [['godmaster','God Master'], ['master','Master'], ['editor','Editor'], ['viewer','Viewer']]
+    : [['master','Master'], ['editor','Editor'], ['viewer','Viewer']];
 
   document.getElementById('usersSheet').innerHTML = `
     <div class="sheet-head">
-      <i class="fa-solid fa-xmark"
-         onclick="document.getElementById('usersOverlay').classList.remove('open')"></i>
+      <i class="fa-solid fa-xmark" onclick="document.getElementById('usersOverlay').classList.remove('open')"></i>
       <span class="sheet-eyebrow">Manage users</span>
     </div>
 
     ${pending.length > 0 ? `
-    <div class="pending-section-title">
-      ${pending.length} request${pending.length===1?'':'s'} waiting for approval
-    </div>
-
-    ${pending.map(u => {
-      const displayName = u.name || u.email || '';
-      const uid = escapeAttr(JSON.stringify(u.id));
-      const safeName = escapeHtml(displayName);
-      const safeEmail = escapeHtml(u.email || '');
-
-      const initials = escapeHtml(
-        displayName
-          .split(' ')
-          .map(w => w[0] || '')
-          .join('')
-          .slice(0,2)
-          .toUpperCase()
-      );
-
-      return `
-        <div class="user-row pending-row">
-          <div class="user-avatar">${initials}</div>
-
-          <div class="user-details">
-            <div class="user-name">${safeName}</div>
-            <div class="user-email">${safeEmail}</div>
-          </div>
-
-          <button
-            class="mini-btn yes"
-            onclick="approveUser(${uid})">
-            Approve
-          </button>
-
-          <i
-            class="fa-solid fa-trash user-remove-btn"
-            title="Deny request"
-            onclick="removeUserAccess(${uid}, ${escapeAttr(JSON.stringify(displayName))})">
-          </i>
+    <div class="pending-section-title">${pending.length} request${pending.length===1?'':'s'} waiting for approval</div>
+    ${pending.map(u=>`
+      <div class="user-row pending-row">
+        <div class="user-avatar">${(u.name||u.email).split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
+        <div class="user-details">
+          <div class="user-name">${u.name || u.email}</div>
+          <div class="user-email">${u.email}</div>
         </div>
-      `;
-    }).join('')}
-
-    <div class="pending-section-title" style="margin-top:16px;">
-      ${approved.length} people have access
-    </div>
-
-    ` : `
-      <div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">
-        ${approved.length} people have access
+        <button class="mini-btn yes" onclick="approveUser('${u.id}')">Approve</button>
+        <i class="fa-solid fa-trash user-remove-btn" title="Deny request" onclick="removeUserAccess('${u.id}','${(u.name||u.email).replace(/'/g,"\\'")}')"></i>
       </div>
-    `}
+    `).join('')}
+    <div class="pending-section-title" style="margin-top:16px;">${approved.length} people have access</div>
+    ` : `<div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">${approved.length} people have access</div>`}
 
-    ${approved.map(u => {
-      const displayName = u.name || u.email || '';
-      const uid = escapeAttr(JSON.stringify(u.id));
-      const safeName = escapeHtml(displayName);
-      const safeEmail = escapeHtml(u.email || '');
-
-      const initials = escapeHtml(
-        displayName
-          .split(' ')
-          .map(w => w[0] || '')
-          .join('')
-          .slice(0,2)
-          .toUpperCase()
-      );
-
-      const isCurrentUser = u.id === currentUser.uid;
-
+    ${approved.map(u=>{
+      const isSelf = u.id===currentUser.uid;
+      const isProtectedGodMaster = u.role === 'godmaster' && !isGodMaster; // shouldn't happen (already filtered) but double-guarded
+      const lockRow = isSelf || isProtectedGodMaster;
       return `
-        <div class="user-row">
-          <div class="user-avatar">${initials}</div>
-
-          <div class="user-details">
-            <div class="user-name">${safeName}</div>
-            <div class="user-email">${safeEmail}</div>
-          </div>
-
-          <select
-            class="role-select"
-            ${isCurrentUser ? 'disabled' : ''}
-            onchange="changeUserRole(${uid}, this.value)">
-
-            <option value="master" ${u.role==='master'?'selected':''}>
-              Master
-            </option>
-
-            <option value="editor" ${u.role==='editor'?'selected':''}>
-              Editor
-            </option>
-
-            <option value="viewer" ${u.role==='viewer'?'selected':''}>
-              Viewer
-            </option>
-
-          </select>
-
-          ${!isCurrentUser ? `
-            <i
-              class="fa-solid fa-trash user-remove-btn"
-              title="Remove access"
-              onclick="removeUserAccess(${uid}, ${escapeAttr(JSON.stringify(displayName))})">
-            </i>
-          ` : ''}
+      <div class="user-row">
+        <div class="user-avatar">${(u.name||u.email).split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>
+        <div class="user-details">
+          <div class="user-name">${u.name || u.email} ${u.role==='godmaster' ? '<i class="fa-solid fa-crown" style="color:var(--accent); font-size:10px;" title="God Master"></i>' : ''}</div>
+          <div class="user-email">${u.email}</div>
         </div>
-      `;
-    }).join('')}
+        <select class="role-select" ${lockRow ? 'disabled' : ''} onchange="changeUserRole('${u.id}', this.value)">
+          ${roleOptions.map(([val,label]) => `<option value="${val}" ${u.role===val?'selected':''}>${label}</option>`).join('')}
+        </select>
+        ${!lockRow ? `<i class="fa-solid fa-trash user-remove-btn" title="Remove access" onclick="removeUserAccess('${u.id}','${(u.name||u.email).replace(/'/g,"\\'")}')"></i>` : ''}
+      </div>
+    `;}).join('')}
   `;
 }
 
@@ -542,7 +337,12 @@ window.approveUser = async (uid)=>{
 };
 
 window.changeUserRole = async (uid, newRole)=>{
-  await updateDoc(doc(db, 'users', uid), { role: newRole });
+  try{
+    await updateDoc(doc(db, 'users', uid), { role: newRole });
+  } catch(err){
+    console.error('Could not change role:', err);
+    alert(`Couldn't change this role: ${err.message}`);
+  }
 };
 
 // Note: this revokes the person's access to the app (deletes their role record, so
@@ -564,46 +364,10 @@ window.removeUserAccess = async (uid, displayName)=>{
 // =========================================================
 
 function renderChips(){
-
-  const cats = [
-    "All",
-    ...new Set(
-      materials
-        .map(m => m.type || '')
-        .filter(Boolean)
-    )
-  ].sort((a,b) =>
-    a === 'All'
-      ? -1
-      : b === 'All'
-        ? 1
-        : a.localeCompare(b)
-  );
-
-  document.getElementById('chips').innerHTML = cats.map(c => {
-
-    const safeCategory =
-      escapeHtml(c);
-
-    const categoryArg =
-      escapeAttr(JSON.stringify(c));
-
-    const active =
-      c === activeCategory
-        ? 'active'
-        : '';
-
-    return `
-      <span
-        class="chip ${active}"
-        onclick="setCategory(${categoryArg})">
-
-        ${safeCategory}
-
-      </span>
-    `;
-
-  }).join('');
+  const cats = ["All", ...new Set(materials.map(m=>m.type))].sort((a,b)=> a==='All' ? -1 : b==='All' ? 1 : a.localeCompare(b));
+  document.getElementById('chips').innerHTML = cats.map(c =>
+    `<span class="chip ${c===activeCategory?'active':''}" onclick="setCategory('${c}')">${c}</span>`
+  ).join('');
 }
 window.setCategory = (c)=>{ activeCategory = c; renderChips(); renderList(); renderStats(); };
 
@@ -644,351 +408,101 @@ function categoryTier(type){
 
 function renderList(){
   const filtered = getFilteredMaterials();
-
   filtered.sort((a,b)=>{
     const tierDiff = categoryTier(a.type) - categoryTier(b.type);
     if(tierDiff !== 0) return tierDiff;
-
-    return b.articles.length - a.articles.length;
+    return b.articles.length - a.articles.length; // within the same tier, most-used material first
   });
-
   const list = document.getElementById('list');
-
-  if(filtered.length === 0){
+  if(filtered.length===0){
     list.innerHTML = `<div class="empty">No results found</div>`;
     return;
   }
-
-  list.innerHTML = filtered.map(m => {
-
+  list.innerHTML = filtered.map(m=>{
     const latest = sortedArticles(m)[0];
-
-    const materialId = escapeAttr(JSON.stringify(m.id));
-    const materialName = escapeHtml(m.name || '');
-    const materialType = escapeHtml(m.type || '');
-
-    return `
-      <div
-        class="card"
-        onclick="openDetail(${materialId})">
-
-        <div class="cat-icon">
-          <i class="${escapeAttr(iconFor(m.type))}"></i>
-        </div>
-
-        <div class="card-info">
-          <div class="name">
-            ${materialName}
-          </div>
-
-          <div class="meta">
-            ${materialType}
-            &middot;
-            used in ${m.articles.length} articles
-          </div>
-        </div>
-
-        <div class="card-price">
-          <div class="usd">
-            $${fmt(currentUsd(latest.rmb))}
-          </div>
-
-          <div class="rmb">
-            &yen;${fmt(latest.rmb)}
-          </div>
-        </div>
-
+    return `<div class="card" onclick="openDetail('${m.id}')">
+      <div class="cat-icon"><i class="${iconFor(m.type)}"></i></div>
+      <div class="card-info">
+        <div class="name">${m.name}</div>
+        <div class="meta">${m.type} &middot; used in ${m.articles.length} articles</div>
       </div>
-    `;
+      <div class="card-price">
+        <div class="usd">$${fmt(currentUsd(latest.rmb))}</div>
+        <div class="rmb">&yen;${fmt(latest.rmb)}</div>
+      </div>
+    </div>`;
   }).join('');
 }
 window.openDetail = openDetail;
 
 function openDetail(id){
-  const m = materials.find(x => x.id === id);
+  const m = materials.find(x=>x.id===id);
   if(!m) return;
-
   const articles = sortedArticles(m);
-
-  const prices = articles
-    .map(a => Number(a.rmb))
-    .filter(Number.isFinite);
-
-  const minP = prices.length ? Math.min(...prices) : 0;
-  const maxP = prices.length ? Math.max(...prices) : 0;
-
+  const prices = articles.map(a=>currentUsd(a.rmb));
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
   const sheet = document.getElementById('detailSheet');
-
-  const materialId = escapeAttr(JSON.stringify(m.id));
-  const materialName = escapeHtml(m.name || '');
-  const materialType = escapeHtml(m.type || '');
-  const materialWidth = escapeHtml(m.width || '—');
-
   sheet.innerHTML = `
     <div class="sheet-head">
-      <i
-        class="fa-solid fa-arrow-left"
-        onclick="closeDetail()">
-      </i>
-
-      <span class="sheet-eyebrow">
-        material record
-      </span>
+      <i class="fa-solid fa-arrow-left" onclick="closeDetail()"></i>
+      <span class="sheet-eyebrow">material record</span>
     </div>
-
     <div class="detail-hero">
-
-      <div class="detail-thumb">
-        <i class="${escapeAttr(iconFor(m.type))}"></i>
-      </div>
-
+      <div class="detail-thumb"><i class="${iconFor(m.type)}"></i></div>
       <div>
-        <div class="detail-title">
-          ${materialName}
-        </div>
-
-        <span class="badge">
-          ${materialType}
-        </span>
+        <div class="detail-title">${m.name}</div>
+        <span class="badge">${m.type}</span>
       </div>
-
     </div>
-
     <div class="summary-strip">
-
-      <div class="summary-cell">
-        <div class="label">Articles</div>
-        <div class="value">${articles.length}</div>
-      </div>
-
-      <div class="summary-cell">
-        <div class="label">Width</div>
-        <div class="value">${materialWidth}</div>
-      </div>
-
-      <div class="summary-cell accent">
-        <div class="label">Price range</div>
-        <div class="value">
-          $${fmt(minP)}&ndash;${fmt(maxP)}
-        </div>
-      </div>
-
+      <div class="summary-cell"><div class="label">Articles</div><div class="value">${articles.length}</div></div>
+      <div class="summary-cell"><div class="label">Width</div><div class="value">${m.width || '—'}</div></div>
+      <div class="summary-cell accent"><div class="label">Price range</div><div class="value">$${fmt(minP)}&ndash;${fmt(maxP)}</div></div>
     </div>
-
-    <div class="used-in">
-      Used in ${articles.length} articles
-    </div>
-
-    ${articles.map(a => {
-
-      const brand = a.brand || '';
-      const no = a.no || '';
-      const entryDate = a.entryDate || '';
-
-      const brandArg = escapeAttr(JSON.stringify(brand));
-      const noArg = escapeAttr(JSON.stringify(no));
-      const entryDateArg = escapeAttr(JSON.stringify(entryDate));
-      const materialIdArg = escapeAttr(JSON.stringify(m.id));
-
-      const safeBrand = escapeHtml(brand);
-      const safeNo = escapeHtml(no);
-      const safeWidth = escapeHtml(m.width || '—');
-      const safeConsumption = escapeHtml(a.consumption || '—');
-      const safeQty = escapeHtml(a.qty || '');
-      const safeEntryDate = escapeHtml(entryDate);
-
-      const imageUrl = a.imageUrl || '';
-      const safeImageUrl = escapeAttr(imageUrl);
-
-      const canEdit =
-        currentRole === 'master' ||
-        currentRole === 'editor';
-
+    <div class="used-in">Used in ${articles.length} articles</div>
+    ${articles.map(a=>{
+      const brandEsc = a.brand.replace(/'/g,"\\'");
+      const noEsc = a.no.replace(/'/g,"\\'");
+      const canEdit = currentRole !== 'viewer';
       return `
-        <div class="article-row">
-
-          <div class="article-thumb-wrap">
-
-            <div
-              class="article-thumb"
-              ${
-                imageUrl
-                  ? `onclick="openLightbox(${escapeAttr(JSON.stringify(imageUrl))})"`
-                  : canEdit
-                    ? `onclick="addArticlePhoto(${materialIdArg},${brandArg},${noArg},${entryDateArg})"`
-                    : ''
-              }>
-
-              ${
-                imageUrl
-                  ? `<img
-                       src="${safeImageUrl}"
-                       alt="${escapeAttr(brand)}"
-                       loading="lazy">`
-                  : `<i class="fa-solid ${canEdit ? 'fa-camera' : 'fa-image'}"></i>`
-              }
-
-            </div>
-
-            ${
-              canEdit
-                ? `
-                  <i
-                    class="fa-solid fa-pen thumb-edit-badge"
-                    title="Change photo"
-                    onclick="addArticlePhoto(${materialIdArg},${brandArg},${noArg},${entryDateArg})">
-                  </i>
-                `
-                : ''
-            }
-
+      <div class="article-row">
+        <div class="article-thumb-wrap">
+          <div class="article-thumb" ${a.imageUrl ? `onclick="openLightbox('${a.imageUrl}')"` : (canEdit ? `onclick="addArticlePhoto('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"` : '')}>
+            ${a.imageUrl ? `<img src="${a.imageUrl}" alt="${a.brand}" loading="lazy">` : `<i class="fa-solid ${canEdit ? 'fa-camera' : 'fa-image'}"></i>`}
           </div>
-
-          <div class="article-info">
-
-            <div class="top-line">
-
-              <span
-                class="brand clickable"
-                onclick="event.stopPropagation(); openBrandView(${brandArg})">
-
-                ${safeBrand}
-
-              </span>
-
-              <span
-                class="no clickable"
-                onclick="event.stopPropagation(); openArticleView(${brandArg},${noArg})">
-
-                ${safeNo}
-
-              </span>
-
-            </div>
-
-            <div class="spec-line">
-
-              <span class="width">
-                <i
-                  class="fa-solid fa-ruler"
-                  style="font-size:14px;">
-                </i>
-
-                ${safeWidth}
-              </span>
-
-              <span class="consumption">
-                <i
-                  class="fa-solid fa-layer-group"
-                  style="font-size:14px;">
-                </i>
-
-                ${safeConsumption}
-              </span>
-
-              ${
-                safeQty
-                  ? `
-                    <span class="qty">
-                      <i
-                        class="fa-solid fa-cubes"
-                        style="font-size:14px;">
-                      </i>
-
-                      ${safeQty}
-                    </span>
-                  `
-                  : ''
-              }
-
-            </div>
-
-          </div>
-
-          <div class="article-price">
-
-            <div class="usd">
-              $${fmt(currentUsd(a.rmb))}
-            </div>
-
-            <div class="rmb">
-              &yen;${fmt(a.rmb)}
-            </div>
-
-            <div class="price-hist">
-              entry: $${fmt(a.usdEntry)}
-              <br>
-              (${safeEntryDate})
-            </div>
-
-          </div>
-
-          ${
-            canEdit
-              ? `
-                <div class="article-link-actions">
-
-                  <i
-                    class="fa-solid fa-pen"
-                    title="Edit this article link"
-                    onclick="openEditArticleLink(${materialIdArg},${brandArg},${noArg},${entryDateArg})">
-                  </i>
-
-                  <i
-                    class="fa-solid fa-link-slash"
-                    title="Remove this article link from this material"
-                    onclick="deleteArticleLink(${materialIdArg},${brandArg},${noArg},${entryDateArg})">
-                  </i>
-
-                  ${
-                    currentRole === 'master'
-                      ? `
-                        <i
-                          class="fa-solid fa-trash-can"
-                          title="Delete this Article from EVERY material (Master only)"
-                          onclick="deleteArticleEverywhere(${brandArg},${noArg})">
-                        </i>
-                      `
-                      : ''
-                  }
-
-                </div>
-              `
-              : ''
-          }
-
+          ${canEdit ? `<i class="fa-solid fa-pen thumb-edit-badge" title="Change photo" onclick="addArticlePhoto('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>` : ''}
         </div>
-      `;
-
-    }).join('')}
-
-    ${
-      currentRole !== 'viewer'
-        ? `
-          <div class="btn-row">
-
-            <button
-              class="btn"
-              onclick="openEditMaterial(${materialId})">
-              edit material
-            </button>
-
-            <button
-              class="btn"
-              onclick="deleteMaterial(${materialId})">
-              delete material
-            </button>
-
+        <div class="article-info">
+          <div class="top-line">
+            <span class="brand clickable" onclick="event.stopPropagation(); openBrandView('${brandEsc}')">${a.brand}</span>
+            <span class="no clickable" onclick="event.stopPropagation(); openArticleView('${brandEsc}','${noEsc}')">${a.no}</span>
           </div>
-        `
-        : ''
-    }
+          <div class="spec-line">
+            <span class="width"><i class="fa-solid fa-ruler" style="font-size:14px;"></i> ${m.width || '—'}</span>
+            <span class="consumption"><i class="fa-solid fa-layer-group" style="font-size:14px;"></i> ${a.consumption || '—'}</span>
+            ${a.qty ? `<span class="qty"><i class="fa-solid fa-cubes" style="font-size:14px;"></i> ${a.qty}</span>` : ''}
+          </div>
+        </div>
+        <div class="article-price">
+          <div class="usd">$${fmt(currentUsd(a.rmb))}</div>
+          <div class="rmb">&yen;${fmt(a.rmb)}</div>
+          <div class="price-hist">entry: $${fmt(a.usdEntry)}<br>(${a.entryDate})</div>
+        </div>
+        ${canEdit ? `
+        <div class="article-link-actions">
+          <i class="fa-solid fa-pen" title="Edit this article link" onclick="openEditArticleLink('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>
+          <i class="fa-solid fa-link-slash" title="Remove this article link from this material" onclick="deleteArticleLink('${m.id}','${brandEsc}','${noEsc}','${a.entryDate}')"></i>
+          ${(currentRole === 'godmaster' || currentRole === 'master') ? `<i class="fa-solid fa-trash-can" title="Delete this Article from EVERY material (Master only)" onclick="deleteArticleEverywhere('${brandEsc}','${noEsc}')"></i>` : ''}
+        </div>` : ''}
+      </div>
+    `;}).join('')}
+    ${currentRole !== 'viewer' ? `
+    <div class="btn-row">
+      <button class="btn" onclick="openEditMaterial('${m.id}')">edit material</button>
+      <button class="btn" onclick="deleteMaterial('${m.id}')">delete material</button>
+    </div>` : ''}
   `;
-
-  document
-    .getElementById('detailOverlay')
-    .classList
-    .add('open');
+  document.getElementById('detailOverlay').classList.add('open');
 }
 window.closeDetail = ()=> document.getElementById('detailOverlay').classList.remove('open');
 document.getElementById('detailOverlay').addEventListener('click', e=>{ if(e.target.id==='detailOverlay') closeDetail(); });
@@ -1011,464 +525,116 @@ window.clearFiltersAndShowList = ()=>{
 };
 
 window.openAllArticles = ()=>{
-
-  const map = new Map();
-
+  const map = new Map(); // "brand||no" -> { brand, no, qty, materialCount, imageUrl }
   materials.forEach(m => m.articles.forEach(a => {
-
     const key = `${a.brand}||${a.no}`;
-
-    const entry = map.get(key) || {
-      brand: a.brand || '',
-      no: a.no || '',
-      qty: a.qty || '',
-      materialCount: 0,
-      imageUrl: ''
-    };
-
+    const entry = map.get(key) || { brand: a.brand, no: a.no, qty: a.qty || '', materialCount: 0, imageUrl: '' };
     entry.materialCount++;
-
-    if(!entry.qty && a.qty){
-      entry.qty = a.qty;
-    }
-
-    if(!entry.imageUrl && a.imageUrl){
-      entry.imageUrl = a.imageUrl;
-    }
-
+    if(!entry.qty && a.qty) entry.qty = a.qty;
+    if(!entry.imageUrl && a.imageUrl) entry.imageUrl = a.imageUrl;
     map.set(key, entry);
-
   }));
-
-  const rows = [...map.values()]
-    .sort((a,b)=> b.materialCount - a.materialCount);
+  const rows = [...map.values()].sort((a,b)=> b.materialCount - a.materialCount);
 
   document.getElementById('detailSheet').innerHTML = `
-
     <div class="sheet-head">
-      <i
-        class="fa-solid fa-xmark"
-        onclick="closeDetail()">
-      </i>
-
-      <span class="sheet-eyebrow">
-        All articles
-      </span>
+      <i class="fa-solid fa-xmark" onclick="closeDetail()"></i>
+      <span class="sheet-eyebrow">All articles</span>
     </div>
-
-    <div class="used-in">
-      ${rows.length}
-      article${rows.length===1?'':'s'}
-    </div>
-
-    ${rows.map(r => {
-
-      const brandArg =
-        escapeAttr(JSON.stringify(r.brand));
-
-      const noArg =
-        escapeAttr(JSON.stringify(r.no));
-
-      const safeBrand =
-        escapeHtml(r.brand);
-
-      const safeNo =
-        escapeHtml(r.no);
-
-      const safeQty =
-        escapeHtml(r.qty);
-
-      const safeImage =
-        escapeAttr(r.imageUrl || '');
-
-      return `
-
-        <div
-          class="drill-row"
-          onclick="openArticleView(${brandArg},${noArg})">
-
-          <div class="drill-thumb">
-
-            ${
-              r.imageUrl
-                ? `
-                  <img
-                    src="${safeImage}"
-                    alt="${escapeAttr(r.no)}"
-                    loading="lazy">
-                `
-                : `
-                  <i class="fa-solid fa-image"></i>
-                `
-            }
-
-          </div>
-
-          <div class="drill-info">
-
-            <div class="drill-title">
-              ${safeBrand} &middot; ${safeNo}
-            </div>
-
-            <div class="drill-sub">
-
-              ${
-                safeQty
-                  ? `Qty: ${safeQty} &middot; `
-                  : ''
-              }
-
-              ${r.materialCount}
-              material${r.materialCount===1?'':'s'}
-
-            </div>
-
-          </div>
-
-          <i class="fa-solid fa-chevron-right drill-arrow"></i>
-
+    <div class="used-in">${rows.length} article${rows.length===1?'':'s'}</div>
+    ${rows.map(r => `
+      <div class="drill-row" onclick="openArticleView('${r.brand.replace(/'/g,"\\'")}','${r.no.replace(/'/g,"\\'")}')">
+        <div class="drill-thumb">${r.imageUrl ? `<img src="${r.imageUrl}" alt="${r.no}">` : `<i class="fa-solid fa-image"></i>`}</div>
+        <div class="drill-info">
+          <div class="drill-title">${r.brand} &middot; ${r.no}</div>
+          <div class="drill-sub">${r.qty ? `Qty: ${r.qty} &middot; ` : ''}${r.materialCount} material${r.materialCount===1?'':'s'}</div>
         </div>
-
-      `;
-
-    }).join('')}
-
+        <i class="fa-solid fa-chevron-right drill-arrow"></i>
+      </div>
+    `).join('')}
   `;
-
-  document
-    .getElementById('detailOverlay')
-    .classList
-    .add('open');
+  document.getElementById('detailOverlay').classList.add('open');
 };
 
 window.openAllBrands = ()=>{
-
-  const map = new Map();
-
+  const map = new Map(); // brand -> { articleCount, materialCount, logoUrl }
   materials.forEach(m => m.articles.forEach(a => {
-
-    const brand = a.brand || '';
-
-    const entry =
-      map.get(brand) ||
-      {
-        articles: new Set(),
-        materialCount: 0
-      };
-
-    entry.articles.add(a.no || '');
+    const entry = map.get(a.brand) || { articles: new Set(), materialCount: 0 };
+    entry.articles.add(a.no);
     entry.materialCount++;
-
-    map.set(brand, entry);
-
+    map.set(a.brand, entry);
   }));
-
-  const rows = [...map.entries()]
-    .sort((a,b)=> b[1].materialCount - a[1].materialCount);
+  const rows = [...map.entries()].sort((a,b)=> b[1].materialCount - a[1].materialCount);
 
   document.getElementById('detailSheet').innerHTML = `
-
     <div class="sheet-head">
-
-      <i
-        class="fa-solid fa-xmark"
-        onclick="closeDetail()">
-      </i>
-
-      <span class="sheet-eyebrow">
-        All brands
-      </span>
-
+      <i class="fa-solid fa-xmark" onclick="closeDetail()"></i>
+      <span class="sheet-eyebrow">All brands</span>
     </div>
-
-    <div class="used-in">
-
-      ${rows.length}
-      brand${rows.length===1?'':'s'}
-
-    </div>
-
+    <div class="used-in">${rows.length} brand${rows.length===1?'':'s'}</div>
     ${rows.map(([brand, info]) => {
-
-      const brandArg =
-        escapeAttr(JSON.stringify(brand));
-
-      const safeBrand =
-        escapeHtml(brand);
-
-      const logoUrl =
-        getBrandLogo(brand) || '';
-
-      const safeLogo =
-        escapeAttr(logoUrl);
-
+      const logoUrl = getBrandLogo(brand);
       return `
-
-        <div
-          class="drill-row"
-          onclick="openBrandView(${brandArg})">
-
-          <div class="drill-thumb">
-
-            ${
-              logoUrl
-                ? `
-                  <img
-                    src="${safeLogo}"
-                    alt="${escapeAttr(brand)}"
-                    loading="lazy">
-                `
-                : `
-                  <i class="fa-solid fa-building"></i>
-                `
-            }
-
-          </div>
-
-          <div class="drill-info">
-
-            <div class="drill-title">
-              ${safeBrand}
-            </div>
-
-            <div class="drill-sub">
-
-              ${info.articles.size}
-              article${info.articles.size===1?'':'s'}
-
-              &middot;
-
-              ${info.materialCount}
-              material link${info.materialCount===1?'':'s'}
-
-            </div>
-
-          </div>
-
-          <i class="fa-solid fa-chevron-right drill-arrow"></i>
-
+      <div class="drill-row" onclick="openBrandView('${brand.replace(/'/g,"\\'")}')">
+        <div class="drill-thumb">${logoUrl ? `<img src="${logoUrl}" alt="${brand}">` : `<i class="fa-solid fa-building"></i>`}</div>
+        <div class="drill-info">
+          <div class="drill-title">${brand}</div>
+          <div class="drill-sub">${info.articles.size} article${info.articles.size===1?'':'s'} &middot; ${info.materialCount} material link${info.materialCount===1?'':'s'}</div>
         </div>
-
-      `;
-
-    }).join('')}
-
+        <i class="fa-solid fa-chevron-right drill-arrow"></i>
+      </div>
+    `;}).join('')}
   `;
-
-  document
-    .getElementById('detailOverlay')
-    .classList
-    .add('open');
+  document.getElementById('detailOverlay').classList.add('open');
 };
 
 // ---- Brand detail: its logo (uploadable) + every Article under this Brand ----
 window.openBrandView = (brand)=>{
-
-  const articleMap = new Map();
-
+  const articleMap = new Map(); // articleNo -> { qty, materialCount, imageUrl }
   materials.forEach(m => m.articles.forEach(a => {
-
     if(a.brand !== brand) return;
-
-    const entry =
-      articleMap.get(a.no) || {
-        qty: a.qty || '',
-        materialCount: 0,
-        imageUrl: ''
-      };
-
+    const entry = articleMap.get(a.no) || { qty: a.qty || '', materialCount: 0, imageUrl: '' };
     entry.materialCount++;
-
-    if(!entry.qty && a.qty){
-      entry.qty = a.qty;
-    }
-
-    if(!entry.imageUrl && a.imageUrl){
-      entry.imageUrl = a.imageUrl;
-    }
-
+    if(!entry.qty && a.qty) entry.qty = a.qty;
+    if(!entry.imageUrl && a.imageUrl) entry.imageUrl = a.imageUrl;
     articleMap.set(a.no, entry);
-
   }));
-
-  const rows = [...articleMap.entries()]
-    .sort((a,b)=> b[1].materialCount - a[1].materialCount);
-
-  // ----------------------------------------------------------
-  // SECURITY: never place raw Firestore values inside HTML
-  // or JavaScript attributes.
-  // ----------------------------------------------------------
-
-  const brandArg =
-    escapeAttr(JSON.stringify(brand));
-
-  const safeBrand =
-    escapeHtml(brand);
-
-  const logoUrl =
-    getBrandLogo(brand) || '';
-
-  const safeLogo =
-    escapeAttr(logoUrl);
-
-  const canEdit =
-    currentRole === 'master' ||
-    currentRole === 'editor';
+  const rows = [...articleMap.entries()].sort((a,b)=> b[1].materialCount - a[1].materialCount);
+  const brandEsc = brand.replace(/'/g,"\\'");
+  const logoUrl = getBrandLogo(brand);
+  const canEdit = currentRole !== 'viewer';
 
   document.getElementById('detailSheet').innerHTML = `
-
     <div class="sheet-head">
-
-      <i
-        class="fa-solid fa-arrow-left"
-        onclick="openAllBrands()">
-      </i>
-
-      <span class="sheet-eyebrow">
-        brand
-      </span>
-
+      <i class="fa-solid fa-arrow-left" onclick="openAllBrands()"></i>
+      <span class="sheet-eyebrow">brand</span>
     </div>
-
-
     <div class="detail-hero">
-
       <div class="detail-thumb-wrap">
-
-        <div
-          class="detail-thumb"
-          ${
-            logoUrl
-              ? `onclick="openLightbox(${safeLogo})"`
-              : ''
-          }
-          style="cursor:${logoUrl ? 'pointer' : 'default'};">
-
-          ${
-            logoUrl
-              ? `
-                <img
-                  src="${safeLogo}"
-                  alt="${escapeAttr(brand)}"
-                  style="width:100%;height:100%;object-fit:cover;border-radius:12px;">
-              `
-              : `
-                <i class="fa-solid fa-building"></i>
-              `
-          }
-
+        <div class="detail-thumb" ${logoUrl ? `onclick="openLightbox('${logoUrl}')"` : ''} style="cursor:${logoUrl ? 'pointer' : 'default'};">
+          ${logoUrl ? `<img src="${logoUrl}" alt="${brand}" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">` : `<i class="fa-solid fa-building"></i>`}
         </div>
-
-
-        ${
-          canEdit
-            ? `
-              <i
-                class="fa-solid fa-pen thumb-edit-badge"
-                title="${logoUrl ? 'Change' : 'Add'} brand logo"
-                onclick="uploadBrandLogo(${brandArg})">
-              </i>
-            `
-            : ''
-        }
-
+        ${canEdit ? `<i class="fa-solid fa-pen thumb-edit-badge" title="${logoUrl ? 'Change' : 'Add'} brand logo" onclick="uploadBrandLogo('${brandEsc}')"></i>` : ''}
       </div>
-
-
       <div>
-
-        <div class="detail-title">
-          ${safeBrand}
-        </div>
-
-        <span class="badge">
-          ${rows.length}
-          article${rows.length === 1 ? '' : 's'}
-        </span>
-
+        <div class="detail-title">${brand}</div>
+        <span class="badge">${rows.length} article${rows.length===1?'':'s'}</span>
       </div>
-
     </div>
-
-
-    ${rows.map(([no, info]) => {
-
-      const noArg =
-        escapeAttr(JSON.stringify(no));
-
-      const safeNo =
-        escapeHtml(no);
-
-      const safeQty =
-        escapeHtml(info.qty || '');
-
-      const imageUrl =
-        info.imageUrl || '';
-
-      const safeImage =
-        escapeAttr(imageUrl);
-
-      return `
-
-        <div
-          class="drill-row"
-          onclick="openArticleView(${brandArg},${noArg})">
-
-          <div class="drill-thumb">
-
-            ${
-              imageUrl
-                ? `
-                  <img
-                    src="${safeImage}"
-                    alt="${escapeAttr(no)}"
-                    loading="lazy">
-                `
-                : `
-                  <i class="fa-solid fa-image"></i>
-                `
-            }
-
-          </div>
-
-
-          <div class="drill-info">
-
-            <div class="drill-title">
-              ${safeNo}
-            </div>
-
-            <div class="drill-sub">
-
-              ${
-                safeQty
-                  ? `Qty: ${safeQty} &middot; `
-                  : ''
-              }
-
-              ${info.materialCount}
-              material${info.materialCount === 1 ? '' : 's'}
-
-            </div>
-
-          </div>
-
-
-          <i class="fa-solid fa-chevron-right drill-arrow"></i>
-
+    ${rows.map(([no, info]) => `
+      <div class="drill-row" onclick="openArticleView('${brandEsc}','${no.replace(/'/g,"\\'")}')">
+        <div class="drill-thumb">${info.imageUrl ? `<img src="${info.imageUrl}" alt="${no}">` : `<i class="fa-solid fa-image"></i>`}</div>
+        <div class="drill-info">
+          <div class="drill-title">${no}</div>
+          <div class="drill-sub">${info.qty ? `Qty: ${info.qty} &middot; ` : ''}${info.materialCount} material${info.materialCount===1?'':'s'}</div>
         </div>
-
-      `;
-
-    }).join('')}
-
+        <i class="fa-solid fa-chevron-right drill-arrow"></i>
+      </div>
+    `).join('')}
   `;
-
-  document
-    .getElementById('detailOverlay')
-    .classList
-    .add('open');
+  document.getElementById('detailOverlay').classList.add('open');
 };
+
 window.uploadBrandLogo = (brand)=>{
   if(!isCloudinaryConfigured){
     alert('Photo storage isn\'t connected yet — open cloudinary-config.js and paste in your cloud name and upload preset.');
@@ -1496,201 +662,49 @@ window.uploadBrandLogo = (brand)=>{
 
 // ---- Article view: every Material used on this Article (its full BOM), with its photo ----
 window.openArticleView = (brand, no)=>{
-
   const rowsRaw = [];
-
-  let qty = '';
-  let imageUrl = '';
-
+  let qty = '', imageUrl = '';
   materials.forEach(m => m.articles.forEach(a => {
-
-    if(a.brand !== brand || a.no !== no){
-      return;
-    }
-
-    if(!qty && a.qty){
-      qty = a.qty;
-    }
-
-    if(!imageUrl && a.imageUrl){
-      imageUrl = a.imageUrl;
-    }
-
-    rowsRaw.push({
-      material: m,
-      article: a
-    });
-
+    if(a.brand !== brand || a.no !== no) return;
+    if(!qty && a.qty) qty = a.qty;
+    if(!imageUrl && a.imageUrl) imageUrl = a.imageUrl;
+    rowsRaw.push({ material: m, article: a });
   }));
-
-  const brandArg =
-    escapeAttr(JSON.stringify(brand));
-
-  const noArg =
-    escapeAttr(JSON.stringify(no));
-
-  const safeBrand =
-    escapeHtml(brand);
-
-  const safeNo =
-    escapeHtml(no);
-
-  const safeQty =
-    escapeHtml(qty || '—');
-
-  const safeImage =
-    escapeAttr(imageUrl || '');
+  const brandEsc = brand.replace(/'/g,"\\'");
 
   document.getElementById('detailSheet').innerHTML = `
-
     <div class="sheet-head">
-
-      <i
-        class="fa-solid fa-arrow-left"
-        onclick="openBrandView(${brandArg})">
-      </i>
-
-      <span class="sheet-eyebrow">
-        article
-      </span>
-
+      <i class="fa-solid fa-arrow-left" onclick="openBrandView('${brandEsc}')"></i>
+      <span class="sheet-eyebrow">article</span>
     </div>
-
     <div class="detail-hero">
-
-      <div
-        class="detail-thumb"
-        ${
-          imageUrl
-            ? `onclick="openLightbox(${safeImage})"`
-            : ''
-        }
-        style="cursor:${imageUrl ? 'pointer' : 'default'};">
-
-        ${
-          imageUrl
-            ? `
-              <img
-                src="${safeImage}"
-                alt="${escapeAttr(no)}"
-                style="width:100%;height:100%;object-fit:cover;border-radius:12px;">
-            `
-            : `
-              <i class="fa-solid fa-image"></i>
-            `
-        }
-
+      <div class="detail-thumb" ${imageUrl ? `onclick="openLightbox('${imageUrl}')"` : ''} style="cursor:${imageUrl ? 'pointer' : 'default'};">
+        ${imageUrl ? `<img src="${imageUrl}" alt="${no}" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">` : `<i class="fa-solid fa-image"></i>`}
       </div>
-
       <div>
-
-        <div class="detail-title">
-          ${safeBrand} &middot; ${safeNo}
-        </div>
-
-        <span class="badge">
-          ${rowsRaw.length}
-          material${rowsRaw.length===1?'':'s'}
-        </span>
-
+        <div class="detail-title">${brand} &middot; ${no}</div>
+        <span class="badge">${rowsRaw.length} material${rowsRaw.length===1?'':'s'}</span>
       </div>
-
     </div>
-
     <div class="summary-strip">
-
-      <div class="summary-cell">
-
-        <div class="label">
-          Materials
-        </div>
-
-        <div class="value">
-          ${rowsRaw.length}
-        </div>
-
-      </div>
-
-      <div class="summary-cell accent">
-
-        <div class="label">
-          Order Qty
-        </div>
-
-        <div class="value">
-          ${safeQty}
-        </div>
-
-      </div>
-
+      <div class="summary-cell"><div class="label">Materials</div><div class="value">${rowsRaw.length}</div></div>
+      <div class="summary-cell accent"><div class="label">Order Qty</div><div class="value">${qty || '—'}</div></div>
     </div>
-
-    <div class="used-in">
-      Bill of materials
-    </div>
-
-    ${rowsRaw.map(({material, article}) => {
-
-      const materialIdArg =
-        escapeAttr(JSON.stringify(material.id));
-
-      const materialName =
-        escapeHtml(material.name || '');
-
-      const materialType =
-        escapeHtml(material.type || '');
-
-      const consumption =
-        escapeHtml(article.consumption || '—');
-
-      const icon =
-        escapeAttr(iconFor(material.type));
-
-      return `
-
-        <div
-          class="drill-row"
-          onclick="openDetail(${materialIdArg})">
-
-          <div class="drill-icon">
-
-            <i class="${icon}"></i>
-
-          </div>
-
-          <div class="drill-info">
-
-            <div class="drill-title">
-              ${materialName}
-            </div>
-
-            <div class="drill-sub">
-
-              ${materialType}
-              &middot;
-              ${consumption}
-              &middot;
-              $${fmt(currentUsd(article.rmb))}
-
-            </div>
-
-          </div>
-
-          <i class="fa-solid fa-chevron-right drill-arrow"></i>
-
+    <div class="used-in">Bill of materials</div>
+    ${rowsRaw.map(({material, article}) => `
+      <div class="drill-row" onclick="openDetail('${material.id}')">
+        <div class="drill-icon"><i class="${iconFor(material.type)}"></i></div>
+        <div class="drill-info">
+          <div class="drill-title">${material.name}</div>
+          <div class="drill-sub">${material.type} &middot; ${article.consumption || '—'} &middot; $${fmt(currentUsd(article.rmb))}</div>
         </div>
-
-      `;
-
-    }).join('')}
-
+        <i class="fa-solid fa-chevron-right drill-arrow"></i>
+      </div>
+    `).join('')}
   `;
-
-  document
-    .getElementById('detailOverlay')
-    .classList
-    .add('open');
+  document.getElementById('detailOverlay').classList.add('open');
 };
+
 // ---- Remove one Article link from one material (Editor/Master) ----
 window.deleteArticleLink = async (materialId, brand, no, entryDate)=>{
   if(!confirm(`Remove ${brand} ${no} from this material? This only affects this one material.`)) return;
@@ -1713,7 +727,7 @@ window.deleteArticleLink = async (materialId, brand, no, entryDate)=>{
 
 // ---- Remove this Article (brand+no) from EVERY material it's linked to (Master only) ----
 window.deleteArticleEverywhere = async (brand, no)=>{
-  if(currentRole !== 'master') return;
+  if(currentRole !== 'master' && currentRole !== 'godmaster') return;
   const affected = materials.filter(m => m.articles.some(a=>a.brand===brand && a.no===no)).length;
   if(!confirm(`Delete "${brand} ${no}" from ALL ${affected} material(s) it's linked to across the whole database? This can't be undone.`)) return;
   try{
@@ -1740,427 +754,92 @@ function allKnownCategories(){
 }
 
 window.openEditMaterial = (id)=>{
-
-  const m = materials.find(x => x.id === id);
+  const m = materials.find(x=>x.id===id);
   if(!m) return;
-
-  const materialIdArg =
-    escapeAttr(JSON.stringify(id));
-
-  const safeName =
-    escapeAttr(m.name || '');
-
-  const safeType =
-    escapeAttr(m.type || '');
-
-  const safeWidth =
-    escapeAttr(m.width || '');
-
   document.getElementById('detailSheet').innerHTML = `
-
     <div class="sheet-head">
-
-      <i
-        class="fa-solid fa-arrow-left"
-        onclick="openDetail(${materialIdArg})">
-      </i>
-
-      <span class="sheet-eyebrow">
-        Edit material
-      </span>
-
+      <i class="fa-solid fa-arrow-left" onclick="openDetail('${id}')"></i>
+      <span class="sheet-eyebrow">Edit material</span>
     </div>
-
-
-    <div class="field">
-
-      <label>
-        Material name
-      </label>
-
-      <input
-        id="emName"
-        value="${safeName}">
-
-    </div>
-
-
+    <div class="field"><label>Material name</label><input id="emName" value="${m.name.replace(/"/g,'&quot;')}"></div>
     <div class="field-row">
-
       <div class="field">
-
-        <label>
-          Type / category
-        </label>
-
-        <input
-          id="emType"
-          list="categoryOptions"
-          value="${safeType}"
-          placeholder="Select or type a new category">
-
+        <label>Type / category</label>
+        <input id="emType" list="categoryOptions" value="${(m.type||'').replace(/"/g,'&quot;')}" placeholder="Select or type a new category">
         <datalist id="categoryOptions">
-
-          ${allKnownCategories().map(c => `
-            <option value="${escapeAttr(c)}"></option>
-          `).join('')}
-
+          ${allKnownCategories().map(c => `<option value="${c}"></option>`).join('')}
         </datalist>
-
       </div>
-
-
-      <div class="field">
-
-        <label>
-          Width
-        </label>
-
-        <input
-          id="emWidth"
-          value="${safeWidth}">
-
-      </div>
-
+      <div class="field"><label>Width</label><input id="emWidth" value="${(m.width||'').replace(/"/g,'&quot;')}"></div>
     </div>
-
-
     <div class="btn-row">
-
-      <button
-        class="btn"
-        onclick="openDetail(${materialIdArg})">
-        Cancel
-      </button>
-
-      <button
-        class="btn primary"
-        id="saveEditMaterial">
-        Save changes
-      </button>
-
+      <button class="btn" onclick="openDetail('${id}')">Cancel</button>
+      <button class="btn primary" id="saveEditMaterial">Save changes</button>
     </div>
-
   `;
-
-
-  document
-    .getElementById('saveEditMaterial')
-    .onclick = async ()=>{
-
-      const name =
-        document.getElementById('emName').value.trim();
-
-      const type =
-        document.getElementById('emType').value.trim()
-        || 'Uncategorized';
-
-      const width =
-        document.getElementById('emWidth').value.trim();
-
-      if(!name) return;
-
-      try{
-
-        await updateDoc(
-          doc(db, 'materials', id),
-          {
-            name,
-            type,
-            width
-          }
-        );
-
-        openDetail(id);
-
-      }catch(err){
-
-        console.error(
-          'Could not update material:',
-          err
-        );
-
-        alert(
-          `Couldn't save this: ${err.message}`
-        );
-
-      }
-
-    };
-
+  document.getElementById('saveEditMaterial').onclick = async ()=>{
+    const name = document.getElementById('emName').value.trim();
+    const type = document.getElementById('emType').value.trim() || 'Uncategorized';
+    const width = document.getElementById('emWidth').value.trim();
+    if(!name) return;
+    await updateDoc(doc(db, 'materials', id), { name, type, width });
+    openDetail(id);
+  };
 };
+
 // ---- Edit one specific Article link (brand / article no / qty / consumption / price) ----
-window.openEditArticleLink = (
-  materialId,
-  brand,
-  no,
-  entryDate
-)=>{
-
-  const m =
-    materials.find(x => x.id === materialId);
-
+window.openEditArticleLink = (materialId, brand, no, entryDate)=>{
+  const m = materials.find(x=>x.id===materialId);
   if(!m) return;
-
-
-  const a =
-    m.articles.find(
-      x =>
-        x.brand === brand &&
-        x.no === no &&
-        x.entryDate === entryDate
-    );
-
+  const a = m.articles.find(x => x.brand===brand && x.no===no && x.entryDate===entryDate);
   if(!a) return;
 
-
-  const materialIdArg =
-    escapeAttr(JSON.stringify(materialId));
-
-  const safeBrand =
-    escapeAttr(brand || '');
-
-  const safeNo =
-    escapeAttr(no || '');
-
-  const safeQty =
-    escapeAttr(a.qty || '');
-
-  const safeConsumption =
-    escapeAttr(a.consumption || '');
-
-  const safeRmb =
-    escapeAttr(a.rmb ?? '');
-
-  const safeUsd =
-    escapeAttr(a.usdEntry ?? '');
-
-
   document.getElementById('detailSheet').innerHTML = `
-
     <div class="sheet-head">
-
-      <i
-        class="fa-solid fa-arrow-left"
-        onclick="openDetail(${materialIdArg})">
-      </i>
-
-      <span class="sheet-eyebrow">
-        Edit article link
-      </span>
-
+      <i class="fa-solid fa-arrow-left" onclick="openDetail('${materialId}')"></i>
+      <span class="sheet-eyebrow">Edit article link</span>
     </div>
-
-
     <div class="field-row">
-
-      <div class="field">
-
-        <label>
-          Brand
-        </label>
-
-        <input
-          id="eaBrand"
-          list="brandOptions"
-          value="${safeBrand}">
-
-      </div>
-
-
-      <div class="field">
-
-        <label>
-          Article No
-        </label>
-
-        <input
-          id="eaArticle"
-          value="${safeNo}">
-
-      </div>
-
+      <div class="field"><label>Brand</label><input id="eaBrand" list="brandOptions" value="${brand.replace(/"/g,'&quot;')}"></div>
+      <div class="field"><label>Article No</label><input id="eaArticle" value="${no.replace(/"/g,'&quot;')}"></div>
     </div>
-
-
     <div class="field-row">
-
-      <div class="field">
-
-        <label>
-          Order Qty
-        </label>
-
-        <input
-          id="eaQty"
-          value="${safeQty}">
-
-      </div>
-
-
-      <div class="field">
-
-        <label>
-          Consumption
-        </label>
-
-        <input
-          id="eaConsumption"
-          value="${safeConsumption}">
-
-      </div>
-
+      <div class="field"><label>Order Qty</label><input id="eaQty" value="${(a.qty||'').replace(/"/g,'&quot;')}"></div>
+      <div class="field"><label>Consumption</label><input id="eaConsumption" value="${(a.consumption||'').replace(/"/g,'&quot;')}"></div>
     </div>
-
-
     <div class="field-row">
-
-      <div class="field">
-
-        <label>
-          Price (RMB)
-        </label>
-
-        <input
-          id="eaRmb"
-          type="number"
-          value="${safeRmb}">
-
-      </div>
-
-
-      <div class="field">
-
-        <label>
-          Entry-time price (USD)
-        </label>
-
-        <input
-          id="eaUsd"
-          type="number"
-          value="${safeUsd}">
-
-      </div>
-
+      <div class="field"><label>Price (RMB)</label><input id="eaRmb" type="number" value="${a.rmb}"></div>
+      <div class="field"><label>Entry-time price (USD)</label><input id="eaUsd" type="number" value="${a.usdEntry}"></div>
     </div>
-
-
     <div class="btn-row">
-
-      <button
-        class="btn"
-        onclick="openDetail(${materialIdArg})">
-        Cancel
-      </button>
-
-      <button
-        class="btn primary"
-        id="saveEditArticleLink">
-        Save changes
-      </button>
-
+      <button class="btn" onclick="openDetail('${materialId}')">Cancel</button>
+      <button class="btn primary" id="saveEditArticleLink">Save changes</button>
     </div>
-
   `;
+  document.getElementById('saveEditArticleLink').onclick = async ()=>{
+    const newBrand = document.getElementById('eaBrand').value.trim();
+    const newNo = document.getElementById('eaArticle').value.trim();
+    const qty = document.getElementById('eaQty').value.trim();
+    const consumption = document.getElementById('eaConsumption').value.trim();
+    const rmb = parseFloat(document.getElementById('eaRmb').value) || 0;
+    const usdEntry = parseFloat(document.getElementById('eaUsd').value) || 0;
+    if(!newBrand || !newNo) return;
 
-
-  document
-    .getElementById('saveEditArticleLink')
-    .onclick = async ()=>{
-
-      const newBrand =
-        document
-          .getElementById('eaBrand')
-          .value
-          .trim();
-
-      const newNo =
-        document
-          .getElementById('eaArticle')
-          .value
-          .trim();
-
-      const qty =
-        document
-          .getElementById('eaQty')
-          .value
-          .trim();
-
-      const consumption =
-        document
-          .getElementById('eaConsumption')
-          .value
-          .trim();
-
-      const rmb =
-        parseFloat(
-          document
-            .getElementById('eaRmb')
-            .value
-        ) || 0;
-
-      const usdEntry =
-        parseFloat(
-          document
-            .getElementById('eaUsd')
-            .value
-        ) || 0;
-
-
-      if(!newBrand || !newNo) return;
-
-
-      const updatedArticles =
-        m.articles.map(x =>
-
-          (
-            x.brand === brand &&
-            x.no === no &&
-            x.entryDate === entryDate
-          )
-
-          ? {
-              ...x,
-              brand: newBrand,
-              no: newNo,
-              qty,
-              consumption,
-              rmb,
-              usdEntry
-            }
-
-          : x
-
-        );
-
-
-      try{
-
-        await updateDoc(
-          doc(db, 'materials', materialId),
-          {
-            articles: updatedArticles
-          }
-        );
-
-        openDetail(materialId);
-
-      }catch(err){
-
-        console.error(
-          'Could not save article link:',
-          err
-        );
-
-        alert(
-          `Couldn't save this: ${err.message}`
-        );
-
-      }
-
-    };
-
+    const updatedArticles = m.articles.map(x =>
+      (x.brand===brand && x.no===no && x.entryDate===entryDate)
+        ? { ...x, brand: newBrand, no: newNo, qty, consumption, rmb, usdEntry }
+        : x
+    );
+    try{
+      await updateDoc(doc(db, 'materials', materialId), { articles: updatedArticles });
+      openDetail(materialId);
+    } catch(err){
+      console.error('Could not save article link:', err);
+      alert(`Couldn't save this: ${err.message}`);
+    }
+  };
 };
+
 // ---- Attach a photo to one specific Article link that has no image yet (e.g. from Excel import) ----
 // Find a photo that's already been attached to this Article (brand + article no)
 // anywhere in the database, so we never have to ask for the same shoe photo twice.
@@ -2241,51 +920,16 @@ window.deleteMaterial = async (id)=>{
 };
 
 function renderBrandOptions(){
-
-  const brandSet = new Set();
-
-  materials.forEach(m =>
-    m.articles.forEach(a => {
-
-      if(a.brand){
-        brandSet.add(a.brand);
-      }
-
-    })
-  );
-
-
+  const brands = new Set();
+  materials.forEach(m => m.articles.forEach(a => brands.add(a.brand)));
   document.getElementById('brandOptions').innerHTML =
-
-    [...brandSet]
-      .sort()
-      .map(b => `
-
-        <option
-          value="${escapeAttr(b)}">
-        </option>
-
-      `)
-      .join('');
+    [...brands].sort().map(b => `<option value="${b}"></option>`).join('');
 }
+
 function renderCategoryOptions(){
-
-  const el =
-    document.getElementById('fTypeOptions');
-
+  const el = document.getElementById('fTypeOptions');
   if(!el) return;
-
-
-  el.innerHTML =
-    allKnownCategories()
-      .map(c => `
-
-        <option
-          value="${escapeAttr(c)}">
-        </option>
-
-      `)
-      .join('');
+  el.innerHTML = allKnownCategories().map(c => `<option value="${c}"></option>`).join('');
 }
 
 function syncAll(){
@@ -2351,12 +995,7 @@ window.checkMatch = ()=>{
   if(val.length<3){ box.classList.remove('show'); return; }
   const match = materials.find(m=> m.name.toLowerCase().includes(val) || val.includes(m.name.toLowerCase().split(' ')[0]));
   if(match){
-    box.innerHTML = `
-  matches existing:
-  <strong>${escapeHtml(match.name)}</strong>
-  &middot;
-  use this?
-`;
+    box.innerHTML = `matches existing: <strong>${match.name}</strong> &middot; use this?`;
     box.classList.add('show');
   } else {
     box.classList.remove('show');
@@ -2477,9 +1116,7 @@ async function parseExcelFile(file){
     <div class="sheet-head"><span class="sheet-eyebrow">Reading file...</span></div>
     <div style="text-align:center; padding:30px 0;">
       <i class="fa-solid fa-spinner fa-spin" style="font-size:26px; color:var(--accent);"></i>
-      <div style="font-size:12px; color:var(--text-mute); margin-top:12px;">
-  Opening ${escapeHtml(file.name)}
-</div>
+      <div style="font-size:12px; color:var(--text-mute); margin-top:12px;">Opening ${file.name}</div>
       <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     </div>
   `;
@@ -2502,70 +1139,23 @@ async function parseExcelFile(file){
 window.renderUploadStart = renderUploadStart;
 
 function renderSheetPicker(){
-
   document.getElementById('uploadSheet').innerHTML = `
     <div class="sheet-head">
-
-      <i
-        class="fa-solid fa-xmark"
-        onclick="document.getElementById('uploadOverlay').classList.remove('open')">
-      </i>
-
-      <span class="sheet-eyebrow">
-        Which tab is this Article on?
-      </span>
-
+      <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
+      <span class="sheet-eyebrow">Which tab is this Article on?</span>
     </div>
-
     <div style="font-size:11px; color:var(--text-mute); margin-bottom:12px;">
-
-      This file has
-      ${currentWorkbook.SheetNames.length}
-      tabs.
-
-      Each tab is usually one Article —
-      pick the one you want to import.
-
+      This file has ${currentWorkbook.SheetNames.length} tabs. Each tab is usually one Article — pick the one you want to import.
     </div>
-
     <div id="sheetPickerList"></div>
   `;
-
-
-  document.getElementById('sheetPickerList').innerHTML =
-    currentWorkbook.SheetNames.map(name => {
-
-      const safeName =
-        escapeHtml(name);
-
-      const nameArg =
-        escapeAttr(JSON.stringify(name));
-
-      return `
-
-        <div
-          class="choice-option"
-          onclick="parseSheet(${nameArg})">
-
-          <div class="choice-icon">
-            <i class="fa-solid fa-table"></i>
-          </div>
-
-          <div class="choice-text">
-
-            <div class="choice-title">
-              ${safeName}
-            </div>
-
-          </div>
-
-          <i class="fa-solid fa-chevron-right choice-arrow"></i>
-
-        </div>
-
-      `;
-
-    }).join('');
+  document.getElementById('sheetPickerList').innerHTML = currentWorkbook.SheetNames.map(name => `
+    <div class="choice-option" onclick="parseSheet('${name.replace(/'/g, "\\'")}')">
+      <div class="choice-icon"><i class="fa-solid fa-table"></i></div>
+      <div class="choice-text"><div class="choice-title">${name}</div></div>
+      <i class="fa-solid fa-chevron-right choice-arrow"></i>
+    </div>
+  `).join('');
 }
 window.parseSheet = parseSheet;
 
@@ -2603,52 +1193,19 @@ function parseSheet(sheetName){
 }
 
 function showParseError(message){
-
-  const backBtn =
-    currentWorkbook &&
-    currentWorkbook.SheetNames.length > 1
-
-      ? `
-        <button
-          class="btn"
-          onclick="renderSheetPicker()">
-          Choose a different tab
-        </button>
-      `
-
-      : `
-        <button
-          class="btn"
-          onclick="renderUploadStart()">
-          Try another file
-        </button>
-      `;
-
-
+  const backBtn = currentWorkbook && currentWorkbook.SheetNames.length > 1
+    ? `<button class="btn" onclick="renderSheetPicker()">Choose a different tab</button>`
+    : `<button class="btn" onclick="renderUploadStart()">Try another file</button>`;
   document.getElementById('uploadSheet').innerHTML = `
-
     <div class="sheet-head">
-
-      <i
-        class="fa-solid fa-xmark"
-        onclick="document.getElementById('uploadOverlay').classList.remove('open')">
-      </i>
-
-      <span class="sheet-eyebrow">
-        Couldn't read this
-      </span>
-
+      <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
+      <span class="sheet-eyebrow">Couldn't read this</span>
     </div>
-
-    <div
-      style="font-size:12px; color:var(--text-mute); margin:14px 0;">
-      ${escapeHtml(message)}
-    </div>
-
+    <div style="font-size:12px; color:var(--text-mute); margin:14px 0;">${message}</div>
     ${backBtn}
-
   `;
 }
+
 // ---- Sheet reading helpers ----
 
 function cellText(v){ return String(v ?? '').trim(); }
@@ -2786,272 +1343,56 @@ function matchAgainstExisting(row){
 // ---- Results UI ----
 
 function renderParseResults(){
-
-  const okCount =
-    parsedRows.filter(r => r.status !== 'warn').length;
-
-  const warnCount =
-    parsedRows.filter(r => r.status === 'warn').length;
-
-  const safeBrand =
-    escapeAttr(parsedBrand);
-
-  const safeArticle =
-    escapeAttr(parsedArticleNo);
-
-  const safeQty =
-    escapeAttr(parsedQty);
-
+  const okCount = parsedRows.filter(r=>r.status!=='warn').length;
+  const warnCount = parsedRows.filter(r=>r.status==='warn').length;
   document.getElementById('uploadSheet').innerHTML = `
-
     <div class="sheet-head">
-
-      <i
-        class="fa-solid fa-xmark"
-        onclick="document.getElementById('uploadOverlay').classList.remove('open')">
-      </i>
-
-      <span class="sheet-eyebrow">
-        ${parsedRows.length} rows found
-      </span>
-
+      <i class="fa-solid fa-xmark" onclick="document.getElementById('uploadOverlay').classList.remove('open')"></i>
+      <span class="sheet-eyebrow">${parsedRows.length} rows found</span>
     </div>
-
-
     <div class="field-row">
-
-      <div class="field">
-
-        <label>
-          Brand
-        </label>
-
-        <input
-          id="parsedBrandInput"
-          value="${safeBrand}"
-          placeholder="Not detected — type it">
-
-      </div>
-
-
-      <div class="field">
-
-        <label>
-          Article No
-        </label>
-
-        <input
-          id="parsedArticleInput"
-          value="${safeArticle}"
-          placeholder="Not detected — type it">
-
-      </div>
-
+      <div class="field"><label>Brand</label><input id="parsedBrandInput" value="${parsedBrand}" placeholder="Not detected — type it"></div>
+      <div class="field"><label>Article No</label><input id="parsedArticleInput" value="${parsedArticleNo}" placeholder="Not detected — type it"></div>
     </div>
-
-
     <div class="field-row">
-
-      <div class="field">
-
-        <label>
-          Order Qty
-        </label>
-
-        <input
-          id="parsedQtyInput"
-          value="${safeQty}"
-          placeholder="Not detected — optional">
-
-      </div>
-
+      <div class="field"><label>Order Qty</label><input id="parsedQtyInput" value="${parsedQty}" placeholder="Not detected — optional"></div>
     </div>
-
-
-    <div
-      style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">
-
-      <span
-        style="color:#3FAE5C; font-weight:600;">
-        ${okCount}
-      </span>
-
-      confirmed matches
-
-      &middot;
-
-      <span
-        style="color:#C9922E; font-weight:600;">
-        ${warnCount}
-      </span>
-
-      need confirmation
-
+    <div style="font-size:11px; color:var(--text-mute); margin-bottom:4px;">
+      <span style="color:#3FAE5C; font-weight:600;">${okCount}</span> confirmed matches &middot;
+      <span style="color:#C9922E; font-weight:600;">${warnCount}</span> need confirmation
     </div>
-
-
     <div id="parseRows"></div>
-
-
     <div class="btn-row">
-
-      <button
-        class="btn"
-        onclick="document.getElementById('uploadOverlay').classList.remove('open')">
-        Cancel
-      </button>
-
-      <button
-        class="btn primary"
-        id="importAllBtn">
-        Import all
-      </button>
-
+      <button class="btn" onclick="document.getElementById('uploadOverlay').classList.remove('open')">Cancel</button>
+      <button class="btn primary" id="importAllBtn">Import all</button>
     </div>
-
   `;
-
-  document
-    .getElementById('importAllBtn')
-    .onclick = importAllParsedRows;
-
+  document.getElementById('importAllBtn').onclick = importAllParsedRows;
   renderParseRowsList();
 }
 
 function renderParseRowsList(){
-
-  document.getElementById('parseRows').innerHTML =
-    parsedRows.map((r, i) => {
-
-      const resolved =
-        r.status !== 'warn';
-
-      const safeName =
-        escapeHtml(r.name || '');
-
-      const safeCategory =
-        escapeHtml(r.category || 'Uncategorized');
-
-      const safeWidth =
-        escapeHtml(r.width || '—');
-
-      const safeConsumption =
-        escapeHtml(r.consumption || '—');
-
-
-      const safeMatchName =
-        r.matchedMaterial
-          ? escapeHtml(r.matchedMaterial.name || '')
-          : '';
-
-
-      const matchLabel =
-        r.status === 'ok-match'
-
-          ? `
-            auto-matched:
-            <b>${safeMatchName}</b>
-          `
-
-          : r.status === 'warn'
-
-            ? `
-              matches existing:
-              <b>${safeMatchName}</b>
-              &middot;
-              use this?
-            `
-
-            : `
-              new material
-            `;
-
-
-      return `
-
-        <div
-          class="parse-row ${resolved ? 'resolved' : ''}"
-          id="prow-${i}">
-
-          <div
-            class="parse-status ${resolved ? 'ok' : 'warn'}">
-
-            <i
-              class="fa-solid ${
-                resolved
-                  ? 'fa-check'
-                  : 'fa-circle-question'
-              }">
-            </i>
-
-          </div>
-
-
-          <div class="parse-info">
-
-            <div class="parse-name">
-              ${safeName}
-            </div>
-
-
-            <div
-              class="parse-sub"
-              id="psub-${i}">
-
-              ${safeCategory}
-
-              &middot;
-
-              ${safeWidth}
-
-              &middot;
-
-              ${safeConsumption}
-
-              &middot;
-
-              $${fmt(r.usd)}
-
-              &middot;
-
-              ${matchLabel}
-
-            </div>
-
-          </div>
-
-
-          ${
-            r.status === 'warn'
-              ? `
-
-                <div
-                  class="parse-actions"
-                  id="pactions-${i}">
-
-                  <button
-                    class="mini-btn yes"
-                    onclick="resolveRow(${i}, true)">
-                    Yes
-                  </button>
-
-                  <button
-                    class="mini-btn"
-                    onclick="resolveRow(${i}, false)">
-                    New
-                  </button>
-
-                </div>
-
-              `
-              : ''
-          }
-
-        </div>
-
-      `;
-
-    }).join('');
+  document.getElementById('parseRows').innerHTML = parsedRows.map((r,i)=>{
+    const resolved = r.status !== 'warn';
+    const matchLabel = r.status === 'ok-match'
+      ? `auto-matched: <b>${r.matchedMaterial.name}</b>`
+      : r.status === 'warn'
+      ? `matches existing: <b>${r.matchedMaterial.name}</b> &middot; use this?`
+      : `new material`;
+    return `
+    <div class="parse-row ${resolved ? 'resolved' : ''}" id="prow-${i}">
+      <div class="parse-status ${resolved ? 'ok' : 'warn'}"><i class="fa-solid ${resolved ? 'fa-check' : 'fa-circle-question'}"></i></div>
+      <div class="parse-info">
+        <div class="parse-name">${r.name}</div>
+        <div class="parse-sub" id="psub-${i}">${r.category} &middot; ${r.width || '—'} &middot; ${r.consumption || '—'} &middot; $${fmt(r.usd)} &middot; ${matchLabel}</div>
+      </div>
+      ${r.status==='warn' ? `
+      <div class="parse-actions" id="pactions-${i}">
+        <button class="mini-btn yes" onclick="resolveRow(${i}, true)">Yes</button>
+        <button class="mini-btn" onclick="resolveRow(${i}, false)">New</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 window.resolveRow = (i, useMatch)=>{
