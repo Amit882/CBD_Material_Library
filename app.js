@@ -435,7 +435,8 @@ function renderList(){
         <div class="rmb">&yen;${fmt(latest.rmb)}</div>
       </div>
     </div>`;
-  }).join('');}
+  }).join('');
+}
 
 window.openDetail = openDetail;
 
