@@ -436,6 +436,7 @@ function renderList(){
 window.openDetail = openDetail;
 
 function openDetail(id){
+  activeMaterialDetailId = id;
   const m = materials.find(x=>x.id===id);
   if(!m) return;
   const articles = sortedArticles(m);
@@ -504,7 +505,10 @@ function openDetail(id){
   `;
   document.getElementById('detailOverlay').classList.add('open');
 }
-window.closeDetail = ()=> document.getElementById('detailOverlay').classList.remove('open');
+window.closeDetail = ()=>{
+  activeMaterialDetailId = null;
+  document.getElementById('detailOverlay').classList.remove('open');
+};
 document.getElementById('detailOverlay').addEventListener('click', e=>{ if(e.target.id==='detailOverlay') closeDetail(); });
 
 // ---- Brand view: every Article under this Brand, with how many materials each uses ----
@@ -932,12 +936,23 @@ function renderCategoryOptions(){
   el.innerHTML = allKnownCategories().map(c => `<option value="${c}"></option>`).join('');
 }
 
+let activeMaterialDetailId = null;
+
 function syncAll(){
   renderChips();
   renderStats();
   renderList();
   renderBrandOptions();
   renderCategoryOptions();
+
+  // If a Material Detail is currently open,
+  // refresh it too so every Article gets the latest exchange rate.
+  if(
+    activeMaterialDetailId &&
+    document.getElementById('detailOverlay')?.classList.contains('open')
+  ){
+    openDetail(activeMaterialDetailId);
+  }
 }
 
 // =========================================================
