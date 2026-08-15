@@ -22,7 +22,10 @@ let pendingPhotoFile = null; // file selected in the add-entry form, uploaded on
 
 const iconFor = t => ({Fabric:"fa-solid fa-swatchbook", Binding:"fa-solid fa-ribbon", Trims:"fa-regular fa-square", Lining:"fa-solid fa-layer-group", Reinforcement:"fa-solid fa-shield-halved"}[t] || "fa-solid fa-box");
 const currentUsd = rmb => (rmb * EXCHANGE_RATE);
-const fmt = n => n.toFixed(3);
+const fmt = n => {
+  const num = Number(n);
+  return Number.isFinite(num) ? num.toFixed(3) : '—';
+};
 
 // =========================================================
 // Live RMB -> USD exchange rate (Frankfurter API, free, no key needed)
@@ -424,20 +427,20 @@ function renderList(){
     return;
   }
   list.innerHTML = filtered.map(m=>{
-    const latest = sortedArticles(m)[0];
-    return `<div class="card" onclick="openDetail('${m.id}')">
-      <div class="cat-icon"><i class="${iconFor(m.type)}"></i></div>
-      <div class="card-info">
-        <div class="name">${m.name}</div>
-        <div class="meta">${m.type} &middot; used in ${m.articles.length} articles</div>
-      </div>
-      <div class="card-price">
-        <div class="usd">$${fmt(currentUsd(latest.rmb))}</div>
-        <div class="rmb">&yen;${fmt(latest.rmb)}</div>
-      </div>
-    </div>`;
-  }).join('');
-}
+  const latest = sortedArticles(m)[0];
+  const hasLatest = latest && typeof latest.rmb !== 'undefined';
+  return `<div class="card" onclick="openDetail('${m.id}')">
+    <div class="cat-icon"><i class="${iconFor(m.type)}"></i></div>
+    <div class="card-info">
+      <div class="name">${m.name}</div>
+      <div class="meta">${m.type} &middot; used in ${m.articles.length} articles</div>
+    </div>
+    <div class="card-price">
+      <div class="usd">${hasLatest ? '$' + fmt(currentUsd(latest.rmb)) : '—'}</div>
+      <div class="rmb">${hasLatest ? '&yen;' + fmt(latest.rmb) : '—'}</div>
+    </div>
+  </div>`;
+}).join('');
 window.openDetail = openDetail;
 
 function openDetail(id){
@@ -496,9 +499,9 @@ const maxP = prices.length ? Math.max(...prices) : 0;
           </div>
         </div>
         <div class="article-price">
-          <div class="usd">$${fmt(currentUsd(a.rmb))}</div>
-          <div class="rmb">&yen;${fmt(a.rmb)}</div>
-          <div class="price-hist">entry: $${fmt(a.usdEntry)}<br>(${a.entryDate})</div>
+          <div class="usd">${a.rmb != null ? '$' + fmt(currentUsd(a.rmb)) : '—'}</div>
+<div class="rmb">${a.rmb != null ? '&yen;' + fmt(a.rmb) : '—'}</div>
+         <div class="price-hist">entry: ${a.usdEntry != null ? '$' + fmt(a.usdEntry) : '—'}<br>(${a.entryDate || '—'})</div>
         </div>
         ${canEdit ? `
         <div class="article-link-actions">
