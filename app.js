@@ -410,7 +410,6 @@ function categoryTier(type){
   if(t.includes('pack')) return 2;
   return 1; // upper, lining, and every other named component
 }
-
 function renderList(){
   const filtered = getFilteredMaterials();
   filtered.sort((a,b)=>{
@@ -436,9 +435,8 @@ function renderList(){
         <div class="rmb">&yen;${fmt(latest.rmb)}</div>
       </div>
     </div>`;
-  }).join('');
-}
-}
+  }).join('');}
+
 window.openDetail = openDetail;
 
 function openDetail(id){
